@@ -2,8 +2,8 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NTU Premium System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NTU Premium System - Ultra Fast</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script>
@@ -17,35 +17,40 @@
         }
     </script>
     <style>
-        html, body { background-color: #020617; margin: 0; padding: 0; overflow-x: hidden; }
+        /* تحسينات الأداء البصري */
+        * { -webkit-tap-highlight-color: transparent; outline: none !important; }
+        html, body { background-color: #020617; margin: 0; padding: 0; overflow-x: hidden; scroll-behavior: smooth; }
         .dark body { background-color: #020617; }
         
         .fire-text-en {
             background: linear-gradient(to bottom, #3b82f6, #1d4ed8);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.5));
+            filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.4));
             font-weight: 900;
         }
         .fire-text-ar {
             background: linear-gradient(to bottom, #ef4444, #f97316);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.4));
+            filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.3));
             font-weight: 800;
         }
         
-        #reader { width: 100% !important; border: none !important; background: #000; }
+        #reader { width: 100% !important; border: none !important; background: #000; border-radius: 2rem; overflow: hidden; }
         #reader video { border-radius: 2rem !important; object-fit: cover !important; }
         
-        .animate-quick { animation: fadeIn 0.2s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-instant { animation: fadeIn 0.15s cubic-bezier(0, 0, 0.2, 1); }
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
 
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #3b82f6; border-radius: 10px; }
+        
+        .qr-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .qr-card:hover { transform: scale(1.02); }
     </style>
 </head>
-<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-0">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
     <div id="root"></div>
 
     <script type="importmap">
@@ -62,40 +67,50 @@
     </script>
 
     <script type="module">
-        import React, { useState, useEffect, useRef } from 'react';
+        import React, { useState, useEffect, useRef, useMemo } from 'react';
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
         import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, deleteDoc, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
-        import { Moon, Sun, User, LogOut, Scan, Users, ClipboardList, CheckCircle, XCircle, Download, Trash2, ChevronRight, Key, Camera, UserPlus } from 'lucide-react';
+        import { Moon, Sun, User, LogOut, Scan, Users, ClipboardList, CheckCircle, XCircle, Download, Trash2, ChevronRight, Key, Camera, UserPlus, RefreshCw } from 'lucide-react';
 
-        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        const getSafeConfig = () => {
+            try { return JSON.parse(window.__firebase_config || '{}'); } catch (e) { return {}; }
+        };
+
+        const firebaseConfig = getSafeConfig();
+        const apiKey = ""; // سيتم تزويده بواسطة البيئة
+        let app, auth, db;
+        if (firebaseConfig.apiKey) {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        }
+
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'ntu-mlt-v2';
-        
-        // مسار الفايرستور الإلزامي
-        const getColPath = (name) => collection(db, 'artifacts', appId, 'public', 'data', name);
+        const getColPath = (name) => db ? collection(db, 'artifacts', appId, 'public', 'data', name) : null;
 
-        const SUBJECTS = ["طرائق البحث", "الحشرات طبية ( نظري)", "الحشرات طبية (عملي)", "نشاطات لا صفية", "ساعة ارشاد", "الكيمياء الحياتية السريرية ( نظري)", "الكيمياء الحياتية (عملي)", "الفطريات ( نظري)", "الفطريات (عملي)", "امراض الدم ( نظري)", "امراض الدم (عملي)", "اللغة الإنكليزية"];
+        const SUBJECTS = ["طرائق البحث", "الحشرات طبية (نظري)", "الحشرات طبية (عملي)", "نشاطات لا صفية", "ساعة ارشاد", "الكيمياء الحياتية السريرية (نظري)", "الكيمياء الحياتية (عملي)", "الفطريات (نظري)", "الفطريات (عملي)", "امراض الدم (نظري)", "امراض الدم (عملي)", "اللغة الإنكليزية"];
         const ADMIN_CREDENTIALS = { username: "NTU", code: "NTU_mlt12#45@56" };
 
-        const QRCodeGenerator = ({ value, size = 180 }) => {
-            const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&&data=${encodeURIComponent(value)}`;
-            return React.createElement("img", { src: url, alt: "QR", className: "rounded-xl shadow-lg bg-white p-2" });
-        };
+        const QRCodeGenerator = React.memo(({ value, size = 180 }) => {
+            const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}&bgcolor=ffffff&color=000000&margin=10`;
+            return React.createElement("div", { className: "qr-card bg-white p-3 rounded-3xl shadow-2xl border border-slate-100" },
+                React.createElement("img", { src: url, alt: "QR", className: "w-full h-auto rounded-xl" }));
+        });
 
         function App() {
             const [user, setUser] = useState(null);
             const [userData, setUserData] = useState(null);
             const [darkMode, setDarkMode] = useState(true);
-            const [view, setView] = useState('loading'); 
+            const [view, setView] = useState('landing'); 
             const [notification, setNotification] = useState(null);
             const [studentsList, setStudentsList] = useState([]);
+            const [loading, setLoading] = useState(true);
 
-            // 1. إدارة المصادقة أولاً
             useEffect(() => {
+                if (!auth) { setLoading(false); return; }
+
                 const initAuth = async () => {
                     try {
                         await setPersistence(auth, browserLocalPersistence);
@@ -104,72 +119,65 @@
                         } else {
                             await signInAnonymously(auth);
                         }
-                    } catch (error) {
-                        console.error("Auth initialization failed", error);
-                    }
+                    } catch (error) {}
+                    setLoading(false);
                 };
 
                 initAuth();
                 const unsubscribe = onAuthStateChanged(auth, async (currUser) => {
                     if (currUser) {
                         setUser(currUser);
-                        // جلب بيانات المستخدم بعد التأكد من تسجيل الدخول
-                        const q = query(getColPath('users'), where('uid', '==', currUser.uid));
-                        const snap = await getDocs(q);
-                        if (!snap.empty) {
-                            const data = snap.docs[0].data();
-                            setUserData(data);
-                            setView(data.role === 'admin' ? 'admin-dash' : 'student-dash');
-                        } else {
-                            if (sessionStorage.getItem('isAdmin') === 'true') {
+                        const path = getColPath('users');
+                        if (path) {
+                            const q = query(path, where('uid', '==', currUser.uid));
+                            const snap = await getDocs(q);
+                            if (!snap.empty) {
+                                const data = snap.docs[0].data();
+                                setUserData(data);
+                                setView(data.role === 'admin' ? 'admin-dash' : 'student-dash');
+                            } else if (sessionStorage.getItem('isAdmin') === 'true') {
                                 setUserData({ name: 'NTU Admin', role: 'admin' });
                                 setView('admin-dash');
-                            } else setView('landing');
+                            }
                         }
-                    } else {
-                        setUser(null);
-                        setView('landing');
                     }
                 });
                 return () => unsubscribe();
             }, []);
 
-            // 2. جلب البيانات بعد توفر المستخدم
             useEffect(() => {
-                if (!user) return;
-                
-                const unsub = onSnapshot(getColPath('users'), (snap) => {
+                const path = getColPath('users');
+                if (!user || !path) return;
+                return onSnapshot(path, (snap) => {
                     setStudentsList(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.role === 'student'));
-                }, (error) => {
-                    console.error("Snapshot error:", error);
-                });
-                return () => unsub();
+                }, (error) => {});
             }, [user]);
 
             const notify = (msg, type = 'success') => {
                 setNotification({ msg, type });
-                setTimeout(() => setNotification(null), 2500);
+                setTimeout(() => setNotification(null), 2000);
             };
 
-            const Navbar = () => (
-                React.createElement("div", { className: "w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-6 flex justify-between items-center sticky top-0 z-50" },
-                    React.createElement("button", { onClick: () => setDarkMode(!darkMode), className: "p-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-amber-500 shadow-inner" }, 
+            const Navbar = useMemo(() => () => (
+                React.createElement("div", { className: "w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-6 flex justify-between items-center sticky top-0 z-50 shadow-sm" },
+                    React.createElement("button", { onClick: () => setDarkMode(!darkMode), className: "p-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-amber-500 shadow-inner active:scale-90 transition-transform" }, 
                         darkMode ? React.createElement(Sun, { size: 22 }) : React.createElement(Moon, { size: 22 })),
                     React.createElement("div", { className: "text-right" },
-                        React.createElement("h1", { className: "text-lg fire-text-en leading-tight" }, "NORTHERN TECHNICAL UNIVERSITY"),
+                        React.createElement("h1", { className: "text-lg fire-text-en leading-tight tracking-tighter" }, "NORTHERN TECHNICAL UNIVERSITY"),
                         React.createElement("h2", { className: "text-[15px] fire-text-ar mt-1" }, "كلية التقنيات الصحية والطبية كركوك - مختبرات طبية")
                     )
                 )
-            );
+            ), [darkMode]);
 
-            if (view === 'loading') return null;
+            if (loading) return React.createElement("div", { className: "min-h-screen bg-slate-950 flex items-center justify-center" }, 
+                React.createElement(RefreshCw, { className: "text-blue-500 animate-spin", size: 40 }));
 
             return React.createElement("div", { className: `${darkMode ? 'dark' : ''} min-h-screen`, dir: "rtl" },
                 React.createElement("div", { className: "min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100" },
                     React.createElement(Navbar, null),
-                    notification && React.createElement("div", { className: `fixed top-24 left-1/2 -translate-x-1/2 z-[100] px-8 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-quick ${notification.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}` },
+                    notification && React.createElement("div", { className: `fixed top-24 left-1/2 -translate-x-1/2 z-[100] px-8 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-instant ${notification.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}` },
                         notification.type === 'success' ? React.createElement(CheckCircle, { size: 20 }) : React.createElement(XCircle, { size: 20 }),
-                        React.createElement("span", { className: "font-bold text-sm" }, notification.msg)),
+                        React.createElement("span", { className: "font-black text-sm" }, notification.msg)),
                     
                     React.createElement("div", { className: "container mx-auto p-4 max-w-xl" },
                         view === 'landing' && React.createElement(LandingView, { setView }),
@@ -183,13 +191,13 @@
         }
 
         function LandingView({ setView }) {
-            return React.createElement("div", { className: "flex flex-col items-center justify-center min-h-[60vh] mt-12 animate-quick" },
+            return React.createElement("div", { className: "flex flex-col items-center justify-center min-h-[60vh] mt-8 animate-instant" },
                 React.createElement("div", { className: "w-full bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl p-10 text-center border border-slate-100 dark:border-slate-800" },
-                    React.createElement("h3", { className: "text-2xl font-black mb-10 dark:text-white" }, "بوابة الدخول"),
+                    React.createElement("h3", { className: "text-2xl font-black mb-10 dark:text-white" }, "بوابة الدخول الذكية"),
                     React.createElement("div", { className: "space-y-6" },
                         React.createElement("button", { onClick: () => setView('login-student'), className: "w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-[2rem] font-black text-xl shadow-lg active:scale-95 transition-all" }, "دخول الطالب"),
                         React.createElement("div", { className: "flex items-center gap-4 opacity-30" }, 
-                            React.createElement("hr", { className: "flex-grow border-slate-500" }), React.createElement("span", null, "أو"), React.createElement("hr", { className: "flex-grow border-slate-500" })),
+                            React.createElement("hr", { className: "flex-grow border-slate-500" }), React.createElement("span", { className: "text-xs font-bold" }, "قسم الإدارة"), React.createElement("hr", { className: "flex-grow border-slate-500" })),
                         React.createElement("button", { onClick: () => setView('login-admin'), className: "w-full py-5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-300 rounded-[2rem] font-bold shadow-md active:scale-95 transition-all flex items-center justify-center gap-3" }, 
                             React.createElement(Key, { size: 20 }), "دخول المسؤول")
                     )
@@ -203,36 +211,35 @@
             const [code, setCode] = useState('');
 
             const handleAction = async () => {
-                if (!user) return notify('يرجى الانتظار للمصادقة', 'error');
-                if (!name || !code) return notify('املأ الحقول أولاً', 'error');
+                if (!name.trim() || !code.trim()) return notify('يرجى إكمال البيانات', 'error');
+                const path = getColPath('users');
+                if (!path) return notify('النظام يعمل في وضع العرض', 'error');
                 
                 try {
                     if (isReg) {
-                        const q = query(getColPath('users'), where('name', '==', name.trim()));
+                        const q = query(path, where('name', '==', name.trim()));
                         const snap = await getDocs(q);
                         if (!snap.empty) return notify('الاسم مسجل مسبقاً', 'error');
-                        const newUser = { uid: user.uid, name: name.trim(), role: 'student', stage: 'المرحلة الثالثة', department: 'مختبرات طبية', accessCode: code };
-                        await addDoc(getColPath('users'), newUser);
+                        const newUser = { uid: user.uid, name: name.trim(), role: 'student', stage: 'المرحلة الثالثة', department: 'مختبرات طبية', accessCode: code.trim() };
+                        await addDoc(path, newUser);
                         setUserData(newUser); setView('student-dash');
                     } else {
-                        const q = query(getColPath('users'), where('name', '==', name.trim()), where('accessCode', '==', code));
+                        const q = query(path, where('name', '==', name.trim()), where('accessCode', '==', code.trim()));
                         const snap = await getDocs(q);
-                        if (snap.empty) return notify('خطأ في البيانات', 'error');
+                        if (snap.empty) return notify('البيانات غير صحيحة', 'error');
                         setUserData(snap.docs[0].data()); setView('student-dash');
                     }
-                } catch (e) {
-                    notify('خطأ في الوصول للبيانات', 'error');
-                }
+                } catch (e) { notify('حدث خطأ أثناء الاتصال', 'error'); }
             };
 
-            return React.createElement("div", { className: "mt-12 bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 animate-quick" },
-                React.createElement("h2", { className: "text-2xl font-black mb-8 text-center" }, isReg ? 'تسجيل جديد' : 'دخول الطالب'),
+            return React.createElement("div", { className: "mt-12 bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-slate-100 dark:border-slate-800 animate-instant" },
+                React.createElement("h2", { className: "text-2xl font-black mb-8 text-center" }, isReg ? 'تسجيل طالب جديد' : 'دخول الطالب'),
                 React.createElement("div", { className: "space-y-4" },
-                    React.createElement("input", { placeholder: "الاسم الثلاثي", className: "w-full p-5 rounded-2xl bg-slate-50 dark:bg-slate-800 outline-none border-2 border-transparent focus:border-blue-500 transition-all text-right", onChange: e => setName(e.target.value) }),
-                    React.createElement("input", { type: "password", placeholder: "رمز الدخول", className: "w-full p-5 rounded-2xl bg-slate-50 dark:bg-slate-800 outline-none border-2 border-transparent focus:border-blue-500 transition-all text-right", onChange: e => setCode(e.target.value) }),
-                    React.createElement("button", { onClick: handleAction, className: "w-full py-5 bg-blue-600 text-white rounded-2xl font-black shadow-xl mt-4" }, isReg ? 'إنشاء حساب' : 'دخول'),
-                    React.createElement("button", { onClick: () => setIsReg(!isReg), className: "w-full text-blue-500 font-bold text-sm mt-4" }, isReg ? 'سجل دخولك من هنا' : 'ليس لديك حساب؟ سجل الآن'),
-                    React.createElement("button", { onClick: () => setView('landing'), className: "w-full text-slate-400 text-xs mt-4" }, "رجوع")
+                    React.createElement("input", { placeholder: "الاسم الثلاثي", className: "w-full p-5 rounded-2xl bg-slate-50 dark:bg-slate-800 outline-none border-2 border-transparent focus:border-blue-500 transition-all text-right font-bold", onChange: e => setName(e.target.value) }),
+                    React.createElement("input", { type: "password", placeholder: "رمز الدخول", className: "w-full p-5 rounded-2xl bg-slate-50 dark:bg-slate-800 outline-none border-2 border-transparent focus:border-blue-500 transition-all text-right font-bold", onChange: e => setCode(e.target.value) }),
+                    React.createElement("button", { onClick: handleAction, className: "w-full py-5 bg-blue-600 text-white rounded-2xl font-black shadow-xl mt-4 active:scale-[0.98] transition-all" }, isReg ? 'تأكيد التسجيل' : 'تسجيل الدخول'),
+                    React.createElement("button", { onClick: () => setIsReg(!isReg), className: "w-full text-blue-500 font-black text-sm mt-4" }, isReg ? 'لديك حساب؟ سجل دخولك' : 'لا تملك حساب؟ سجل كطالب جديد'),
+                    React.createElement("button", { onClick: () => setView('landing'), className: "w-full text-slate-400 text-xs mt-4 font-bold" }, "رجوع للرئيسية")
                 )
             );
         }
@@ -245,27 +252,29 @@
                     sessionStorage.setItem('isAdmin', 'true');
                     setUserData({ name: 'NTU Admin', role: 'admin' });
                     setView('admin-dash');
-                } else notify('بيانات غير صحيحة', 'error');
+                } else notify('بيانات الأدمن غير صحيحة', 'error');
             };
-            return React.createElement("div", { className: "mt-12 bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-red-100 dark:border-red-950/20 animate-quick" },
-                React.createElement("h2", { className: "text-2xl font-black mb-8 text-center text-red-600" }, "ADMIN ACCESS"),
+            return React.createElement("div", { className: "mt-12 bg-white dark:bg-slate-900 rounded-[3rem] p-10 shadow-2xl border border-red-100 dark:border-red-950/20 animate-instant" },
+                React.createElement("h2", { className: "text-2xl font-black mb-8 text-center text-red-600" }, "ADMIN VERIFICATION"),
                 React.createElement("div", { className: "space-y-4" },
-                    React.createElement("input", { placeholder: "Username", className: "w-full p-5 rounded-2xl bg-slate-50 dark:bg-slate-800 outline-none border-2 border-slate-200 dark:border-slate-700 focus:border-red-500 transition-all", onChange: e => setU(e.target.value) }),
-                    React.createElement("input", { type: "password", placeholder: "Password", className: "w-full p-5 rounded-2xl bg-slate-50 dark:bg-slate-800 outline-none border-2 border-slate-200 dark:border-slate-700 focus:border-red-500 transition-all", onChange: e => setP(e.target.value) }),
-                    React.createElement("button", { onClick: login, className: "w-full py-5 bg-slate-900 dark:bg-white dark:text-black text-white rounded-2xl font-black shadow-xl mt-4" }, "Verify"),
-                    React.createElement("button", { onClick: () => setView('landing'), className: "w-full text-slate-400 text-xs mt-4" }, "Back")
+                    React.createElement("input", { placeholder: "Username", className: "w-full p-5 rounded-2xl bg-slate-50 dark:bg-slate-800 outline-none border-2 border-slate-200 dark:border-slate-700 focus:border-red-500 transition-all font-bold", onChange: e => setU(e.target.value) }),
+                    React.createElement("input", { type: "password", placeholder: "Password", className: "w-full p-5 rounded-2xl bg-slate-50 dark:bg-slate-800 outline-none border-2 border-slate-200 dark:border-slate-700 focus:border-red-500 transition-all font-bold", onChange: e => setP(e.target.value) }),
+                    React.createElement("button", { onClick: login, className: "w-full py-5 bg-slate-900 dark:bg-white dark:text-black text-white rounded-2xl font-black shadow-xl mt-4 active:scale-95 transition-all" }, "دخول النظام"),
+                    React.createElement("button", { onClick: () => setView('landing'), className: "w-full text-slate-400 text-xs mt-4" }, "العودة للخلف")
                 )
             );
         }
 
         function StudentDashboard({ userData, setView }) {
-            return React.createElement("div", { className: "flex flex-col items-center mt-6 animate-quick" },
-                React.createElement("div", { className: "w-full bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl p-10 text-center border border-slate-100 dark:border-slate-800" },
-                    React.createElement("div", { className: "w-24 h-24 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto mb-6 flex items-center justify-center text-blue-600" }, React.createElement(User, { size: 40 })),
-                    React.createElement("h3", { className: "text-2xl font-black mb-8" }, userData?.name),
-                    React.createElement("div", { className: "bg-white p-6 rounded-3xl shadow-inner inline-block mb-8 border border-slate-50" },
+            return React.createElement("div", { className: "flex flex-col items-center mt-6 animate-instant" },
+                React.createElement("div", { className: "w-full bg-white dark:bg-slate-900 rounded-[3rem] shadow-2xl p-10 text-center border border-slate-100 dark:border-slate-800 relative overflow-hidden" },
+                    React.createElement("div", { className: "absolute top-0 right-0 p-8 opacity-5 text-blue-600" }, React.createElement(User, { size: 100 })),
+                    React.createElement("div", { className: "w-24 h-24 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto mb-6 flex items-center justify-center text-blue-600 border-4 border-white dark:border-slate-800 shadow-md" }, React.createElement(User, { size: 40 })),
+                    React.createElement("h3", { className: "text-2xl font-black mb-2" }, userData?.name),
+                    React.createElement("p", { className: "text-slate-400 text-sm mb-8 font-bold" }, `${userData?.stage} - ${userData?.department}`),
+                    React.createElement("div", { className: "inline-block mb-10" },
                         React.createElement(QRCodeGenerator, { value: JSON.stringify({ uid: userData?.uid, name: userData?.name }) })),
-                    React.createElement("button", { onClick: async () => { await signOut(auth); setView('landing'); }, className: "w-full py-4 text-red-500 font-bold bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center gap-2" }, React.createElement(LogOut, { size: 18 }), "خروج من النظام")
+                    React.createElement("button", { onClick: async () => { if (auth) await signOut(auth); setView('landing'); }, className: "w-full py-4 text-red-500 font-black bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center gap-2 hover:bg-red-100 transition-colors" }, React.createElement(LogOut, { size: 18 }), "تسجيل الخروج من الحساب")
                 )
             );
         }
@@ -275,31 +284,30 @@
             const [sub, setSub] = useState('');
 
             const menu = () => (
-                React.createElement("div", { className: "space-y-6 mt-8 animate-quick" },
-                    React.createElement("button", { onClick: () => setTab('scan'), className: "w-full p-10 bg-blue-600 text-white rounded-[2.5rem] shadow-2xl flex items-center gap-6 active:scale-95 transition-all" },
-                        React.createElement("div", { className: "p-4 bg-white/20 rounded-2xl" }, React.createElement(Scan, { size: 35 })),
-                        React.createElement("span", { className: "text-2xl font-black" }, "تسجيل حضور جديد")),
+                React.createElement("div", { className: "space-y-6 mt-8 animate-instant" },
+                    React.createElement("button", { onClick: () => setTab('scan'), className: "w-full p-10 bg-blue-600 text-white rounded-[2.5rem] shadow-2xl flex items-center gap-6 active:scale-95 transition-all hover:bg-blue-700" },
+                        React.createElement("div", { className: "p-4 bg-white/20 rounded-2xl shadow-inner" }, React.createElement(Scan, { size: 35 })),
+                        React.createElement("span", { className: "text-2xl font-black" }, "تسجيل حضور ذكي")),
                     React.createElement("div", { className: "grid grid-cols-2 gap-4" },
                         React.createElement("button", { onClick: () => setTab('attendance'), className: "p-8 bg-white dark:bg-slate-900 rounded-[2rem] shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col items-center gap-4 active:scale-95 transition-all" },
                             React.createElement("div", { className: "p-3 bg-sky-100 dark:bg-sky-900/30 text-sky-500 rounded-xl" }, React.createElement(ClipboardList, { size: 28 })),
                             React.createElement("span", { className: "font-black" }, "سجل الحضور")),
                         React.createElement("button", { onClick: () => setTab('members'), className: "p-8 bg-white dark:bg-slate-900 rounded-[2rem] shadow-xl border border-slate-100 dark:border-slate-800 flex flex-col items-center gap-4 active:scale-95 transition-all" },
                             React.createElement("div", { className: "p-3 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-xl" }, React.createElement(Users, { size: 28 })),
-                            React.createElement("span", { className: "font-black" }, "الطلاب"))
+                            React.createElement("span", { className: "font-black" }, "قائمة الطلاب"))
                     ),
-                    React.createElement("div", { className: "h-8" }),
-                    React.createElement("button", { onClick: async () => { sessionStorage.clear(); await signOut(auth); setView('landing'); }, className: "w-full py-5 border-2 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 rounded-2xl font-black flex items-center justify-center gap-3 mt-12 hover:bg-slate-100 dark:hover:bg-slate-800" }, React.createElement(LogOut, { size: 20 }), "خروج من النظام")
+                    React.createElement("button", { onClick: async () => { sessionStorage.clear(); if (auth) await signOut(auth); setView('landing'); }, className: "w-full py-5 border-2 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 rounded-2xl font-black flex items-center justify-center gap-3 mt-12 active:bg-slate-100 dark:active:bg-slate-800 transition-all" }, React.createElement(LogOut, { size: 20 }), "خروج النظام")
                 )
             );
 
             return React.createElement("div", null,
-                tab !== 'menu' && React.createElement("div", { className: "flex items-center gap-4 mb-8 mt-4 animate-quick" },
-                    React.createElement("button", { onClick: () => setTab('menu'), className: "p-3 bg-white dark:bg-slate-900 rounded-full shadow-md text-slate-500" }, React.createElement(ChevronRight, { size: 24 })),
-                    React.createElement("h2", { className: "text-xl font-black" }, tab === 'scan' ? 'ماسح الحضور' : tab === 'attendance' ? 'سجلات الحضور' : 'قائمة الطلاب')),
+                tab !== 'menu' && React.createElement("div", { className: "flex items-center gap-4 mb-8 mt-4 animate-instant" },
+                    React.createElement("button", { onClick: () => setTab('menu'), className: "p-3 bg-white dark:bg-slate-900 rounded-full shadow-md text-slate-500 active:scale-90" }, React.createElement(ChevronRight, { size: 24 })),
+                    React.createElement("h2", { className: "text-xl font-black" }, tab === 'scan' ? 'الماسح الضوئي' : tab === 'attendance' ? 'تقارير الحضور' : 'إدارة الطلاب')),
                 tab === 'menu' ? menu() : 
                 tab === 'scan' ? React.createElement(Scanner, { sub, setSub, notify, studentsList }) :
-                tab === 'attendance' ? React.createElement(AttendanceLog, { notify, studentsList, user }) :
-                React.createElement(MembersLog, { notify, studentsList, user })
+                tab === 'attendance' ? React.createElement(AttendanceLog, { notify, studentsList }) :
+                React.createElement(MembersLog, { notify, studentsList })
             );
         }
 
@@ -317,121 +325,124 @@
             };
 
             const start = async () => {
-                if (!sub) return notify('اختر المادة أولاً', 'error');
+                if (!sub) return notify('يرجى اختيار المادة الدراسية', 'error');
                 setScanning(true);
                 setTimeout(async () => {
-                    const htmlScanner = new window.Html5Qrcode("reader");
-                    scannerRef.current = htmlScanner;
-                    await htmlScanner.start({ facingMode: "environment" }, { fps: 60, qrbox: 300 }, async (text) => {
-                        try {
-                            const data = JSON.parse(text);
-                            await processAttendance(data);
-                        } catch(e) {}
-                    });
-                }, 200);
+                    try {
+                        const htmlScanner = new window.Html5Qrcode("reader");
+                        scannerRef.current = htmlScanner;
+                        await htmlScanner.start({ facingMode: "environment" }, { fps: 60, qrbox: { width: 250, height: 250 } }, async (text) => {
+                            try {
+                                const data = JSON.parse(text);
+                                await processAttendance(data);
+                            } catch(e) {}
+                        });
+                    } catch(e) { notify('تعذر فتح الكاميرا', 'error'); setScanning(false); }
+                }, 100);
             };
 
             const processAttendance = async (student) => {
                 const found = studentsList.find(s => s.uid === student.uid && s.name === student.name);
-                if (!found) return notify('الطالب غير مسجل في النظام', 'error');
+                if (!found) return notify('الطالب غير موجود في قاعدة البيانات', 'error');
                 
-                const today = new Date().toLocaleDateString('en-GB');
-                const q = query(getColPath('attendance'), where('subject', '==', sub), where('date', '==', today), where('studentId', '==', found.uid));
-                const snap = await getDocs(q);
-                if (!snap.empty) return notify('تم تسجيله مسبقاً اليوم', 'info');
+                const path = getColPath('attendance');
+                if (!path) return notify('خطأ في الاتصال بالخادم', 'error');
 
-                await addDoc(getColPath('attendance'), {
+                const today = new Date().toLocaleDateString('en-GB');
+                const q = query(path, where('subject', '==', sub), where('date', '==', today), where('studentId', '==', found.uid));
+                const snap = await getDocs(q);
+                if (!snap.empty) return notify('تم تسجيل الحضور مسبقاً لهذا اليوم', 'info');
+
+                await addDoc(path, {
                     studentName: found.name, studentId: found.uid, subject: sub, date: today,
                     time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
                     timestamp: serverTimestamp()
                 });
-                notify(`تم تسجيل ${found.name} بنجاح`);
+                notify(`تم تسجيل حضور ${found.name.split(' ')[0]} بنجاح`);
             };
 
-            return React.createElement("div", { className: "space-y-6 animate-quick" },
+            return React.createElement("div", { className: "space-y-6 animate-instant" },
                 !scanning && React.createElement("div", { className: "bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl border border-slate-100 dark:border-slate-800" },
-                    React.createElement("div", { className: "grid grid-cols-2 gap-3 max-h-60 overflow-y-auto p-2 custom-scrollbar mb-8" },
-                        SUBJECTS.map(s => React.createElement("button", { key: s, onClick: () => setSub(s), className: `p-4 text-[11px] font-black rounded-2xl border-2 transition-all ${sub === s ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-800 border-transparent text-slate-500'}` }, s))),
+                    React.createElement("div", { className: "grid grid-cols-2 gap-3 max-h-64 overflow-y-auto p-2 custom-scrollbar mb-8" },
+                        SUBJECTS.map(s => React.createElement("button", { key: s, onClick: () => setSub(s), className: `p-4 text-[12px] font-black rounded-2xl border-2 transition-all duration-150 ${sub === s ? 'bg-blue-600 border-blue-600 text-white shadow-lg scale-[1.02]' : 'bg-slate-50 dark:bg-slate-800 border-transparent text-slate-500 hover:border-blue-300'}` }, s))),
                     
                     sub && React.createElement("div", { className: "space-y-4" },
-                        React.createElement("button", { onClick: start, className: "w-full py-5 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-3 shadow-xl" }, React.createElement(Camera, { size: 24 }), "فتح الكاميرا فوراً"),
-                        React.createElement("button", { onClick: () => setManualMode(!manualMode), className: "w-full py-4 text-blue-600 border-2 border-blue-100 dark:border-blue-900 rounded-2xl font-bold flex items-center justify-center gap-3" }, React.createElement(UserPlus, { size: 20 }), "إضافة حضور يدوي"),
+                        React.createElement("button", { onClick: start, className: "w-full py-6 bg-blue-600 text-white rounded-[2rem] font-black flex items-center justify-center gap-3 shadow-2xl active:scale-95 transition-all" }, React.createElement(Camera, { size: 26 }), "بدء المسح الضوئي (QR)"),
+                        React.createElement("button", { onClick: () => setManualMode(!manualMode), className: "w-full py-4 text-blue-600 border-2 border-blue-100 dark:border-blue-900 rounded-2xl font-black flex items-center justify-center gap-3" }, React.createElement(UserPlus, { size: 20 }), "تسجيل يدوي (بحث بالاسم)"),
                         
-                        manualMode && React.createElement("div", { className: "p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl mt-4 animate-quick" },
-                            React.createElement("input", { placeholder: "ابحث عن اسم الطالب...", className: "w-full p-4 rounded-xl bg-white dark:bg-slate-950 outline-none mb-3 text-right", onChange: e => setSearchName(e.target.value) }),
+                        manualMode && React.createElement("div", { className: "p-4 bg-slate-50 dark:bg-slate-800 rounded-3xl mt-4 border border-blue-50 dark:border-blue-900/30 animate-instant" },
+                            React.createElement("input", { placeholder: "اكتب اسم الطالب للبحث...", className: "w-full p-4 rounded-xl bg-white dark:bg-slate-950 outline-none mb-3 text-right font-bold shadow-sm", onChange: e => setSearchName(e.target.value) }),
                             React.createElement("div", { className: "space-y-2 max-h-40 overflow-y-auto custom-scrollbar" },
-                                studentsList.filter(s => s.name.includes(searchName)).slice(0, 5).map(s => 
-                                    React.createElement("button", { key: s.uid, onClick: () => processAttendance(s), className: "w-full text-right p-3 bg-white dark:bg-slate-900 rounded-xl text-sm font-bold border border-slate-100 dark:border-slate-700 hover:bg-blue-50" }, s.name))))
+                                studentsList.filter(s => s.name.includes(searchName)).slice(0, 10).map(s => 
+                                    React.createElement("button", { key: s.uid, onClick: () => processAttendance(s), className: "w-full text-right p-4 bg-white dark:bg-slate-900 rounded-xl text-sm font-black border border-slate-100 dark:border-slate-700 hover:bg-blue-50 active:scale-[0.98] transition-all" }, s.name))))
                     )
                 ),
                 scanning && React.createElement("div", null,
-                    React.createElement("div", { className: "relative w-full aspect-square rounded-[3rem] overflow-hidden bg-black border-4 border-blue-600 shadow-2xl" }, React.createElement("div", { id: "reader" })),
-                    React.createElement("button", { onClick: async () => { await stopScanner(); setScanning(false); }, className: "w-full py-5 bg-white dark:bg-slate-900 text-red-500 font-black rounded-2xl mt-6 shadow-xl" }, "إلغاء المسح")
+                    React.createElement("div", { className: "relative w-full aspect-square rounded-[3rem] overflow-hidden bg-black border-8 border-blue-600 shadow-2xl" }, React.createElement("div", { id: "reader" })),
+                    React.createElement("button", { onClick: async () => { await stopScanner(); setScanning(false); }, className: "w-full py-5 bg-white dark:bg-slate-900 text-red-500 font-black rounded-[2rem] mt-6 shadow-xl active:scale-95 transition-all" }, "إغلاق الكاميرا")
                 )
             );
         }
 
-        function AttendanceLog({ notify, user }) {
+        function AttendanceLog({ notify, studentsList }) {
             const [logs, setLogs] = useState([]);
             const [selectedSub, setSelectedSub] = useState('');
 
             useEffect(() => {
-                if (!user || !selectedSub) {
-                    setLogs([]);
-                    return;
+                const path = getColPath('attendance');
+                if (selectedSub && path) {
+                    const q = query(path, where('subject', '==', selectedSub));
+                    return onSnapshot(q, (snap) => {
+                        setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)));
+                    });
                 }
-                const q = query(getColPath('attendance'), where('subject', '==', selectedSub));
-                const unsub = onSnapshot(q, (snap) => {
-                    setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)));
-                }, (err) => console.error("Logs error:", err));
-                return () => unsub();
-            }, [selectedSub, user]);
+            }, [selectedSub]);
 
             const del = async (id) => {
-                if (window.confirm('متأكد من حذف الحضور؟')) {
-                    try {
-                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', id));
-                        notify('تم الحذف بنجاح');
-                    } catch (e) { notify('فشل الحذف', 'error'); }
+                if (confirm('حذف هذا القيد من سجل الحضور؟')) {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', id));
+                    notify('تم الحذف');
                 }
             };
 
-            return React.createElement("div", { className: "space-y-6 animate-quick" },
-                React.createElement("select", { className: "w-full p-5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 font-black outline-none", onChange: e => setSelectedSub(e.target.value) },
-                    React.createElement("option", { value: "" }, "-- اختر المادة --"), SUBJECTS.map(s => React.createElement("option", { key: s, value: s }, s))),
+            return React.createElement("div", { className: "space-y-6 animate-instant" },
+                React.createElement("select", { className: "w-full p-5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 font-black outline-none shadow-sm", onChange: e => setSelectedSub(e.target.value) },
+                    React.createElement("option", { value: "" }, "-- اختر المادة الدراسية --"), SUBJECTS.map(s => React.createElement("option", { key: s, value: s }, s))),
                 
-                logs.length > 0 && React.createElement("div", { className: "flex justify-between items-center" },
-                    React.createElement("span", { className: "text-xs opacity-50 font-bold" }, `إجمالي: ${logs.length}`),
+                logs.length > 0 && React.createElement("div", { className: "flex justify-between items-center bg-blue-50 dark:bg-blue-900/10 p-4 rounded-2xl" },
+                    React.createElement("span", { className: "text-blue-600 font-black" }, `العدد الإجمالي: ${logs.length}`),
                     React.createElement("button", { onClick: () => {
                         const csv = "\uFEFFالاسم,المادة,التاريخ,الوقت\n" + logs.map(l => `${l.studentName},${l.subject},${l.date},${l.time}`).join("\n");
                         const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-                        link.download = `Attendance_${selectedSub}.csv`; link.click();
-                    }, className: "text-blue-500 text-xs font-black flex items-center gap-2" }, React.createElement(Download, { size: 16 }), "تصدير")),
+                        link.download = `Report_${selectedSub}.csv`; link.click();
+                    }, className: "bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 shadow-md active:scale-90 transition-transform" }, React.createElement(Download, { size: 16 }), "تصدير Excel")),
                 
                 React.createElement("div", { className: "space-y-3" },
-                    logs.map(l => React.createElement("div", { key: l.id, className: "p-5 bg-white dark:bg-slate-900 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-800 shadow-sm" },
-                        React.createElement("div", null, React.createElement("b", { className: "block text-sm" }, l.studentName), React.createElement("span", { className: "text-[10px] opacity-40" }, `${l.date} - ${l.time}`)),
-                        React.createElement("button", { onClick: () => del(l.id), className: "p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl" }, React.createElement(Trash2, { size: 20 }))))
+                    logs.map(l => React.createElement("div", { key: l.id, className: "p-5 bg-white dark:bg-slate-900 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-800 shadow-sm animate-instant" },
+                        React.createElement("div", null, React.createElement("b", { className: "block text-[15px] font-black" }, l.studentName), React.createElement("span", { className: "text-[11px] opacity-40 font-bold" }, `${l.date} | ${l.time}`)),
+                        React.createElement("button", { onClick: () => del(l.id), className: "p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors" }, React.createElement(Trash2, { size: 20 }))))
                 )
             );
         }
 
-        function MembersLog({ notify, studentsList, user }) {
+        function MembersLog({ notify, studentsList }) {
             const del = async (id, name) => {
-                if (!user) return;
-                if (window.confirm(`هل تريد حذف الطالب ${name} نهائياً؟`)) {
-                    try {
-                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id));
-                        notify('تم حذف الطالب');
-                    } catch (e) { notify('فشل الحذف', 'error'); }
+                if (confirm(`هل أنت متأكد من حذف الطالب (${name}) بشكل نهائي؟`)) {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id));
+                    notify('تم حذف الطالب');
                 }
             };
-            return React.createElement("div", { className: "space-y-3 animate-quick" },
-                studentsList.map(m => React.createElement("div", { key: m.id, className: "p-5 bg-white dark:bg-slate-900 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-800 shadow-sm" },
-                    React.createElement("div", { className: "flex items-center gap-4" },
-                        React.createElement("div", { className: "w-12 h-12 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-full flex items-center justify-center font-black" }, m.name.charAt(0)),
-                        React.createElement("div", null, React.createElement("b", { className: "block text-sm" }, m.name), React.createElement("span", { className: "text-[10px] text-slate-400 font-bold" }, `رمز: ${m.accessCode}`))),
-                    React.createElement("button", { onClick: () => del(m.id, m.name), className: "p-3 text-red-400 hover:text-red-600 transition-colors" }, React.createElement(Trash2, { size: 20 }))))
+
+            return React.createElement("div", { className: "space-y-4 animate-instant" },
+                React.createElement("div", { className: "bg-blue-600 p-6 rounded-3xl text-white shadow-xl flex justify-between items-center" },
+                    React.createElement("div", null, React.createElement("p", { className: "text-blue-100 text-sm font-bold" }, "إجمالي الطلاب المسجلين"), React.createElement("h4", { className: "text-3xl font-black" }, studentsList.length)),
+                    React.createElement(Users, { size: 40, className: "opacity-20" })),
+                
+                React.createElement("div", { className: "space-y-3" },
+                    studentsList.map(s => React.createElement("div", { key: s.id, className: "p-5 bg-white dark:bg-slate-900 rounded-2xl flex justify-between items-center border border-slate-100 dark:border-slate-800 shadow-sm" },
+                        React.createElement("div", null, React.createElement("b", { className: "block text-[15px] font-black" }, s.name), React.createElement("span", { className: "text-[11px] text-blue-500 font-bold" }, s.accessCode)),
+                        React.createElement("button", { onClick: () => del(s.id, s.name), className: "p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors" }, React.createElement(Trash2, { size: 20 }))))
+                )
             );
         }
 
