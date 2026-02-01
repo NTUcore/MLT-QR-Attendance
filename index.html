@@ -14,7 +14,8 @@
         body { font-family: 'Noto Sans Arabic', sans-serif; -webkit-tap-highlight-color: transparent; scroll-behavior: smooth; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .qr-container canvas, .qr-container img { margin: 0 auto; border-radius: 1rem; border: 4px solid #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        #reader video { border-radius: 1.5rem; object-fit: cover; }
+        #reader { width: 100% !important; border: none !important; }
+        #reader video { border-radius: 1.5rem; object-fit: cover !important; }
         .animate-in { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         #admin-modal { display: none; }
@@ -87,28 +88,19 @@
             setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 400); }, 2000);
         };
 
-        // Improved Logout Logic: Clean, fast, and restarts the app to landing screen
-        const globalLogout = async () => {
-            try {
-                if (html5QrCode) {
-                    await html5QrCode.stop().catch(() => {});
-                    html5QrCode = null;
-                }
-                await signOut(auth);
-                localStorage.clear();
-                // Forces the page to reload back to the initial landing state
-                window.location.reload(); 
-            } catch (error) {
-                // Fail-safe fallback if reload fails
-                localStorage.clear();
-                window.location.href = window.location.href.split('#')[0];
+        // Fix: Force hard exit from any state
+        const globalLogout = () => {
+            localStorage.clear();
+            sessionStorage.clear();
+            if (html5QrCode) {
+                try { html5QrCode.stop(); } catch(e) {}
             }
+            // Navigate to original URL without hashes/parameters to reset state
+            window.location.href = window.location.pathname;
         };
 
         onAuthStateChanged(auth, (user) => {
-            if (!user) {
-                signInAnonymously(auth);
-            }
+            if (!user) signInAnonymously(auth);
             showView();
         });
 
@@ -151,9 +143,7 @@
                 userRole = 'student'; userData = student; showStudent();
             };
 
-            document.getElementById('open-admin-modal').onclick = () => {
-                document.getElementById('admin-modal').classList.add('active');
-            };
+            document.getElementById('open-admin-modal').onclick = () => document.getElementById('admin-modal').classList.add('active');
         };
 
         document.getElementById('adm-cancel').onclick = () => document.getElementById('admin-modal').classList.remove('active');
@@ -227,7 +217,9 @@
                         <select id="sel-sub" class="w-full p-4 bg-slate-50 rounded-2xl border-none font-bold text-blue-700 outline-none">
                             ${SUBJECTS.map(s => `<option>${s}</option>`).join('')}
                         </select>
-                        <div id="reader" class="w-full aspect-square bg-slate-900 rounded-[2.5rem] overflow-hidden shadow-2xl border-4 border-white"></div>
+                        <div id="reader-container" class="w-full aspect-square bg-slate-900 rounded-[2.5rem] overflow-hidden shadow-2xl border-4 border-white relative">
+                             <div id="reader"></div>
+                        </div>
                         <div class="flex gap-2">
                             <button id="start-scan" class="flex-1 py-5 bg-blue-600 text-white font-black rounded-2xl shadow-xl active:scale-95 transition-all text-lg">تشغيل الماسح الذكي</button>
                             <button id="stop-scan" class="px-8 py-5 bg-slate-100 text-slate-500 font-black rounded-2xl hidden transition-all">إيقاف</button>
@@ -240,7 +232,7 @@
                 btnStart.onclick = async () => {
                     btnStart.classList.add('hidden'); btnStop.classList.remove('hidden');
                     html5QrCode = new Html5Qrcode("reader");
-                    await html5QrCode.start({ facingMode: "environment" }, { fps: 30, qrbox: { width: 280, height: 280 } }, 
+                    await html5QrCode.start({ facingMode: "environment" }, { fps: 30, qrbox: { width: 250, height: 250 } }, 
                         async (text) => {
                             if (isProcessing) return;
                             isProcessing = true;
@@ -250,33 +242,23 @@
                                 const sName = data.n || data.name;
                                 const currentSub = document.getElementById('sel-sub').value;
                                 const todayDate = new Date().toISOString().split('T')[0];
-
-                                if (!sId || !sName) throw new Error();
                                 
-                                // Smart Duplication Check for the day
                                 const attendanceRef = collection(db, 'artifacts', appId, 'public', 'data', 'attendance');
-                                const q = query(attendanceRef, 
-                                    where("studentId", "==", sId), 
-                                    where("subject", "==", currentSub), 
-                                    where("date", "==", todayDate)
-                                );
-                                
+                                const q = query(attendanceRef, where("studentId", "==", sId), where("subject", "==", currentSub), where("date", "==", todayDate));
                                 const checkSnap = await getDocs(q);
+                                
                                 if (!checkSnap.empty) {
-                                    notify('الطالب مسجل حضور مسبقاً لهذه المادة اليوم', true);
+                                    notify('الطالب مسجل حضور مسبقاً اليوم لهذه المادة', true);
                                     navigator.vibrate?.([100, 50, 100]);
                                 } else {
-                                    await addDoc(attendanceRef, {
-                                        studentId: sId, studentName: sName, subject: currentSub,
-                                        date: todayDate, time: new Date().toLocaleTimeString('ar-EG'), timestamp: serverTimestamp()
-                                    });
-                                    notify(`تم تسجيل: ${sName}`);
+                                    await addDoc(attendanceRef, { studentId: sId, studentName: sName, subject: currentSub, date: todayDate, time: new Date().toLocaleTimeString('ar-EG'), timestamp: serverTimestamp() });
+                                    notify(`تم تسجيل حضور: ${sName}`);
                                     navigator.vibrate?.(50);
                                 }
-                            } catch (e) { notify('خطأ في البيانات أو الرمز', true); }
-                            setTimeout(() => isProcessing = false, 1500);
+                            } catch (e) { notify('خطأ في قراءة الرمز', true); }
+                            setTimeout(() => isProcessing = false, 2000);
                         }, () => {}
-                    ).catch(() => notify('الكاميرا غير متاحة', true));
+                    ).catch(() => { notify('تعذر تشغيل الكاميرا', true); btnStart.classList.remove('hidden'); btnStop.classList.add('hidden'); });
                 };
                 btnStop.onclick = () => { stopScanner(); btnStart.classList.remove('hidden'); btnStop.classList.add('hidden'); };
             };
@@ -298,16 +280,13 @@
                         <div id="attendance-list" class="space-y-2 max-h-[420px] overflow-y-auto no-scrollbar pb-10"></div>
                     </div>
                 `;
-
                 let currentItems = [];
-
                 const update = () => {
                     const sub = document.getElementById('log-sub').value;
                     const d = document.getElementById('log-date').value;
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), (snap) => {
                         currentItems = snap.docs.map(doc => ({id: doc.id, ...doc.data()}))
                             .filter(a => a.subject === sub && a.date === d).sort((a,b) => b.timestamp - a.timestamp);
-                        
                         document.getElementById('attendance-list').innerHTML = currentItems.length ? currentItems.map(a => `
                             <div class="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border-r-4 border-green-500 animate-in">
                                 <div><p class="font-bold text-sm text-slate-800">${a.studentName}</p><p class="text-[10px] text-slate-400 font-bold">${a.time}</p></div>
@@ -318,7 +297,6 @@
                         document.querySelectorAll('.del-log').forEach(b => b.onclick = () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', b.dataset.id)));
                     });
                 };
-
                 document.getElementById('download-csv').onclick = () => {
                     if (currentItems.length === 0) return notify('لا توجد بيانات للتحميل', true);
                     let csv = 'الاسم,المادة,التاريخ,الوقت\n';
@@ -327,12 +305,11 @@
                     const url = URL.createObjectURL(blob);
                     const link = document.createElement("a");
                     link.href = url;
-                    link.setAttribute("download", `تقرير_الحضور_${document.getElementById('log-sub').value}_${document.getElementById('log-date').value}.csv`);
+                    link.setAttribute("download", `تقرير_${document.getElementById('log-sub').value}_${document.getElementById('log-date').value}.csv`);
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
                 };
-
                 document.getElementById('log-sub').onchange = update;
                 document.getElementById('log-date').onchange = update;
                 update();
@@ -350,15 +327,12 @@
                     const list = snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => a.name.localeCompare(b.name, 'ar'));
                     document.getElementById('members-list').innerHTML = list.map(m => `
                         <div class="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border animate-in">
-                            <div>
-                                <p class="font-bold text-sm text-slate-800">${m.name}</p>
-                                <p class="text-[10px] text-blue-500 font-black">رمز الدخول: ${m.pin || '----'}</p>
-                            </div>
+                            <div><p class="font-bold text-sm text-slate-800">${m.name}</p><p class="text-[10px] text-blue-500 font-black">رمز الدخول: ${m.pin || '----'}</p></div>
                             <button class="del-mem text-red-300 p-2" data-id="${m.id}"><i data-lucide="trash-2" size="18"></i></button>
                         </div>
                     `).join('') || '<p class="text-center py-10 text-slate-300 italic">لا يوجد طلاب</p>';
                     lucide.createIcons();
-                    document.querySelectorAll('.del-mem').forEach(b => b.onclick = () => confirm('هل تريد حذف الطالب نهائياً؟') && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', b.dataset.id)));
+                    document.querySelectorAll('.del-mem').forEach(b => b.onclick = () => confirm('حذف الطالب نهائياً؟') && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', b.dataset.id)));
                 });
             };
             draw();
