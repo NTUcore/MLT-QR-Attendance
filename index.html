@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Northern Technical University App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['system-ui', 'sans-serif'] },
+                },
+            },
+        }
+    </script>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; overflow-x: hidden; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #334155; }
+        .ntu-title-en { letter-spacing: 0.02em; line-height: 1; }
+        #reader { width: 100% !important; border: none !important; }
+        #reader video { border-radius: 1.5rem !important; object-fit: cover !important; }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <div id="root"></div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+            "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
+            "lucide-react": "https://esm.sh/lucide-react@0.330.0"
+        }
+    }
+    </script>
+
+    <script>
+        window.addEventListener('error', function(e) {
+            if (e.message && (e.message.includes('Html5Qrcode') || e.message.includes('scanner'))) {
+                e.preventDefault();
+                return true;
+            }
+        });
+
+        if (typeof window.__firebase_config === 'undefined') {
+            const myFirebaseConfig = {
+                apiKey: "AIzaSyD-YOUR-API-KEY-HERE",
+                authDomain: "your-project.firebaseapp.com",
+                projectId: "your-project-id",
+                storageBucket: "your-project.appspot.com",
+                messagingSenderId: "123456789",
+                appId: "1:123456789:web:abcdef"
+            };
+            window.__firebase_config = JSON.stringify(myFirebaseConfig);
+            window.__app_id = 'ntu-mlt-external-v1';
+            window.__initial_auth_token = "";
+        }
+    </script>
+
+    <script type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { initializeApp } from 'firebase/app';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, deleteDoc, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+        import { Moon, Sun, User, LogOut, Scan, Users, ClipboardList, CheckCircle, XCircle, Download, Trash2, ChevronRight, Key, Camera } from 'lucide-react';
+
+        const QR_SCRIPT_URL = "https://unpkg.com/html5-qrcode";
+        const SUBJECTS = ["طرائق البحث", "الحشرات طبية (نظري)", "الحشرات طبية (عملي)", "نشاطات لا صفية", "ساعة ارشاد", "الكيمياء الحياتية السريرية (نظري)", "الكيمياء الحياتية (عملي)", "الفطريات (نظري)", "الفطريات (عملي)", "امراض الدم (نظري)", "امراض الدم (عملي)", "اللغة الإنكليزية"];
+        const ADMIN_CREDENTIALS = { username: "NTU", code: "NTU_mlt12#45@56" };
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'ntu-mlt-v1';
+        const getColPath = (name) => collection(db, 'artifacts', appId, 'public', 'data', name);
+
+        const QRCodeGenerator = ({ value, size = 150 }) => {
+          const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&&data=${encodeURIComponent(value)}`;
+          return React.createElement("img", { src: url, alt: "QR Code", className: "rounded-lg shadow-sm border border-slate-100 dark:border-slate-700" });
+        };
+
+        const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false, icon: IconComponent }) => {
+          const variants = {
+            primary: "bg-blue-600 hover:bg-blue-700 text-white shadow-md",
+            danger: "bg-red-600 hover:bg-red-700 text-white",
+            info: "bg-sky-500 hover:bg-sky-600 text-white",
+            outline: "border-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800",
+          };
+          return React.createElement("button", {
+            onClick: onClick, disabled: disabled,
+            className: `${variants[variant]} ${className} active:scale-95 transition-all duration-100 font-bold py-3 px-6 rounded-2xl flex items-center justify-center gap-2 disabled:opacity-50`
+          }, IconComponent && React.createElement(IconComponent, { size: 20 }), children);
+        };
+
+        function App() {
+          const [user, setUser] = useState(null);
+          const [userData, setUserData] = useState(null);
+          const [darkMode, setDarkMode] = useState(false);
+          const [view, setView] = useState('loading');
+          const [notification, setNotification] = useState(null);
+          // Pre-loaded students list for instant admin access
+          const [preloadedStudents, setPreloadedStudents] = useState([]);
+
+          useEffect(() => {
+            if (!document.getElementById('qr-scanner-script')) {
+              const script = document.createElement('script');
+              script.id = 'qr-scanner-script';
+              script.src = QR_SCRIPT_URL;
+              script.async = true;
+              document.body.appendChild(script);
+            }
+            const initAuth = async () => {
+              try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+                else await signInAnonymously(auth);
+              } catch (err) { console.error("Auth init error:", err); }
+            };
+            initAuth();
+            const unsubscribe = onAuthStateChanged(auth, async (currUser) => {
+              setUser(currUser);
+              if (currUser && view === 'loading') {
+                const q = query(getColPath('users'), where('uid', '==', currUser.uid));
+                const snap = await getDocs(q);
+                if (!snap.empty) {
+                  const data = snap.docs[0].data();
+                  setUserData(data);
+                  setView(data.role === 'admin' ? 'admin-dash' : 'student-dash');
+                } else setView('landing');
+              } else if (!currUser && view === 'loading') setView('landing');
+            });
+            return () => unsubscribe();
+          }, [view]);
+
+          // Real-time preloading of students when admin is logged in
+          useEffect(() => {
+            if (user && userData?.role === 'admin') {
+              const unsub = onSnapshot(getColPath('users'), (snap) => {
+                const list = snap.docs
+                  .map(d => ({id: d.id, ...d.data()}))
+                  .filter(u => u.role === 'student')
+                  .sort((a,b) => a.name.localeCompare(b.name, 'ar'));
+                setPreloadedStudents(list);
+              });
+              return () => unsub();
+            }
+          }, [user, userData]);
+
+          const notify = (msg, type = 'success') => {
+            setNotification({ msg, type });
+            setTimeout(() => setNotification(null), 3000);
+          };
+
+          const Navbar = () => (
+            React.createElement("div", { className: "w-full bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 p-4 flex justify-between items-center sticky top-0 z-50 transition-colors duration-200" },
+              React.createElement("button", {
+                onClick: () => setDarkMode(!darkMode),
+                className: "p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 text-amber-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all shadow-sm border border-slate-200 dark:border-slate-700"
+              }, darkMode ? React.createElement(Sun, { size: 20 }) : React.createElement(Moon, { size: 20 })),
+              React.createElement("div", { className: "text-right flex flex-col items-end" },
+                React.createElement("h1", { className: "text-sm font-black text-blue-700 dark:text-blue-400 ntu-title-en leading-none mb-1" }, "NORTHERN TECHNICAL UNIVERSITY"),
+                React.createElement("h2", { className: "text-[12px] font-bold text-red-600 dark:text-orange-500 leading-none" }, "كلية التقنيات الصحية والطبية كركوك - مختبرات طبية")
+              )
+            )
+          );
+
+          return React.createElement("div", { className: `${darkMode ? 'dark' : ''} min-h-screen transition-colors duration-200`, dir: "rtl" },
+              React.createElement("div", { className: "min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans" },
+                React.createElement(Navbar, null),
+                notification && React.createElement("div", { className: `fixed top-20 left-1/2 -translate-x-1/2 z-[100] px-6 py-3 rounded-full shadow-2xl flex items-center gap-2 animate-in fade-in zoom-in duration-200 ${notification.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}` },
+                    notification.type === 'success' ? React.createElement(CheckCircle, { size: 18 }) : React.createElement(XCircle, { size: 18 }),
+                    React.createElement("span", { className: "font-bold text-sm" }, notification.msg)),
+                React.createElement("div", { className: "container mx-auto p-4 max-w-xl" },
+                  view === 'loading' && React.createElement("div", { className: "flex justify-center p-20 font-bold opacity-50" }, "جاري التحميل..."),
+                  view === 'landing' && React.createElement(LandingView, { setView: setView }),
+                  view === 'login-student' && React.createElement(StudentLogin, { setView: setView, setUserData: setUserData, user: user, notify: notify }),
+                  view === 'login-admin' && React.createElement(AdminLogin, { setView: setView, setUserData: setUserData, notify: notify }),
+                  view === 'student-dash' && React.createElement(StudentDashboard, { userData: userData, setView: setView }),
+                  view === 'admin-dash' && React.createElement(AdminDashboard, { setView: setView, notify: notify, user: user, preloadedStudents: preloadedStudents })
+                )
+              )
+            );
+        }
+
+        function LandingView({ setView }) {
+          return React.createElement("div", { className: "flex flex-col items-center justify-center min-h-[70vh]" },
+              React.createElement("div", { className: "w-full bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl p-10 text-center border border-slate-100 dark:border-slate-800" },
+                React.createElement("h3", { className: "text-2xl font-black text-slate-800 dark:text-white mb-3 tracking-tight" }, "بوابة الدخول"),
+                React.createElement("p", { className: "text-slate-500 dark:text-slate-400 mb-10 text-sm font-medium leading-relaxed" }, "يرجى تسجيل الدخول أو إنشاء حساب جديد", React.createElement("br"), "للبدء في تسجيل الحضور"),
+                React.createElement("div", { className: "space-y-4" },
+                  React.createElement(Button, { onClick: () => setView('login-student'), className: "w-full py-4 text-lg" }, "دخول الطالب"),
+                  React.createElement("div", { className: "py-4 flex items-center gap-4" },
+                    React.createElement("div", { className: "h-[1px] bg-slate-100 dark:bg-slate-800 flex-grow" }),
+                    React.createElement("button", { onClick: () => setView('login-admin'), className: "p-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-blue-600 transition-all border border-transparent hover:border-blue-100" }, React.createElement(Key, { size: 24 })),
+                    React.createElement("div", { className: "h-[1px] bg-slate-100 dark:bg-slate-800 flex-grow" })
+                  )
+                )
+              )
+            );
+        }
+
+        function StudentLogin({ setView, setUserData, user, notify }) {
+          const [step, setStep] = useState('login');
+          const [name, setName] = useState('');
+          const [code, setCode] = useState('');
+          const [confirmCode, setConfirmCode] = useState('');
+          const [loading, setLoading] = useState(false);
+
+          const handleRegister = async () => {
+            if (!user) return notify('جاري تهيئة الاتصال...', 'error');
+            if (name.trim().split(/\s+/).length < 3) return notify('يجب كتابة الاسم الثلاثي', 'error');
+            if (code.length < 4) return notify('الرمز يجب أن يكون 4 أرقام على الأقل', 'error');
+            if (code !== confirmCode) return notify('الرموز غير متطابقة', 'error');
+            setLoading(true);
+            try {
+              const q = query(getColPath('users'), where('name', '==', name.trim()));
+              const snap = await getDocs(q);
+              if (!snap.empty) { notify('الاسم مسجل مسبقاً', 'error'); setStep('login'); }
+              else {
+                const newUser = { uid: user.uid, name: name.trim(), role: 'student', stage: 'المرحلة الثالثة', department: 'مختبرات طبية', accessCode: code, createdAt: new Date().toISOString() };
+                await addDoc(getColPath('users'), newUser);
+                setUserData(newUser); setView('student-dash'); notify('تم التسجيل بنجاح');
+              }
+            } catch (e) { notify('خطأ في الاتصال بالسيرفر', 'error'); }
+            setLoading(false);
+          };
+
+          const handleLogin = async () => {
+            if (!name || !code) return notify('يرجى ملء جميع الحقول', 'error');
+            setLoading(true);
+            try {
+              const q = query(getColPath('users'), where('name', '==', name.trim()));
+              const snap = await getDocs(q);
+              if (snap.empty) notify('بيانات الدخول غير صحيحة', 'error');
+              else {
+                const data = snap.docs[0].data();
+                if (data.accessCode === code) { setUserData(data); setView('student-dash'); notify('مرحباً بك مجدداً'); }
+                else notify('رمز الدخول غير صحيح', 'error');
+              }
+            } catch (e) { notify('خطأ في الاتصال', 'error'); }
+            setLoading(false);
+          };
+
+          return React.createElement("div", { className: "bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-slate-100 dark:border-slate-800 animate-in fade-in slide-in-from-bottom-4 duration-300" },
+              React.createElement("h2", { className: "text-xl font-black mb-8 text-center dark:text-white" }, step === 'register' ? 'تسجيل طالب جديد' : 'دخول الطالب'),
+              React.createElement("div", { className: "space-y-4" },
+                React.createElement("input", { type: "text", placeholder: "الاسم الثلاثي", className: "w-full p-4 rounded-2xl border-2 border-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-white outline-none focus:border-blue-500 transition-colors", value: name, onChange: e => setName(e.target.value) }),
+                React.createElement("input", { type: "password", placeholder: "رمز الدخول الخاص بك", className: "w-full p-4 rounded-2xl border-2 border-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-white outline-none focus:border-blue-500 transition-colors", value: code, onChange: e => setCode(e.target.value) }),
+                step === 'register' && React.createElement("input", { type: "password", placeholder: "تأكيد رمز الدخول", className: "w-full p-4 rounded-2xl border-2 border-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-white outline-none focus:border-blue-500 transition-colors", value: confirmCode, onChange: e => setConfirmCode(e.target.value) }),
+                React.createElement(Button, { onClick: step === 'register' ? handleRegister : handleLogin, disabled: loading, className: "w-full mt-4" }, loading ? 'جاري التحقق...' : (step === 'register' ? 'إنشاء الحساب' : 'دخول الآن')),
+                React.createElement("button", { onClick: () => setStep(step === 'register' ? 'login' : 'register'), className: "w-full mt-4 text-blue-500 text-sm font-bold hover:underline" }, step === 'register' ? 'لديك حساب بالفعل؟ سجل دخول' : 'ليس لديك حساب؟ سجل الآن مجاناً'),
+                React.createElement("button", { onClick: () => setView('landing'), className: "w-full mt-2 text-slate-400 text-xs font-bold uppercase tracking-widest" }, "Back to portal")
+              )
+            );
+        }
+
+        function AdminLogin({ setView, setUserData, notify }) {
+          const [id, setId] = useState('');
+          const [pass, setPass] = useState('');
+          const handleAdmin = () => {
+            if (id === ADMIN_CREDENTIALS.username && pass === ADMIN_CREDENTIALS.code) { setUserData({ name: 'NTU Admin', role: 'admin' }); setView('admin-dash'); }
+            else notify('بيانات المسؤول غير صحيحة', 'error');
+          };
+          return React.createElement("div", { className: "bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 shadow-xl border border-red-50 dark:border-red-950/20" },
+              React.createElement("h2", { className: "text-xl font-black mb-8 text-center text-red-600 uppercase tracking-tighter" }, "Admin Access"),
+              React.createElement("div", { className: "space-y-4" },
+                React.createElement("input", { type: "text", placeholder: "Username", className: "w-full p-4 rounded-2xl border-2 border-slate-800 dark:bg-slate-950 dark:text-white outline-none focus:border-red-500 transition-colors", value: id, onChange: e => setId(e.target.value) }),
+                React.createElement("input", { type: "password", placeholder: "Password", className: "w-full p-4 rounded-2xl border-2 border-slate-800 dark:bg-slate-950 dark:text-white outline-none focus:border-red-500 transition-colors", value: pass, onChange: e => setPass(e.target.value) }),
+                React.createElement(Button, { onClick: handleAdmin, className: "w-full py-4 text-lg", variant: "danger" }, "دخول مسؤول"),
+                React.createElement("button", { onClick: () => setView('landing'), className: "w-full mt-2 text-slate-400 text-xs font-bold uppercase" }, "Cancel")
+              )
+            );
+        }
+
+        function StudentDashboard({ userData, setView }) {
+          const handleLogout = () => { signOut(auth); setView('landing'); };
+          return React.createElement("div", { className: "flex flex-col items-center animate-in fade-in duration-300" },
+              React.createElement("div", { className: "w-full bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl overflow-hidden p-8 border border-slate-100 dark:border-slate-800" },
+                React.createElement("div", { className: "flex justify-between items-center mb-8" },
+                  React.createElement("span", { className: "text-[10px] font-black bg-blue-50 dark:bg-blue-900/30 text-blue-600 px-3 py-1 rounded-full uppercase" }, "Verified Student"),
+                  React.createElement("button", { onClick: handleLogout, className: "text-red-500 p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors" }, React.createElement(LogOut, { size: 20 }))
+                ),
+                React.createElement("div", { className: "flex flex-col items-center" },
+                  React.createElement("div", { className: "w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-full mb-4 flex items-center justify-center text-blue-600 border-4 border-white dark:border-slate-900 shadow-sm" }, React.createElement(User, { size: 48 })),
+                  React.createElement("h3", { className: "text-xl font-black dark:text-white mb-8 tracking-tight" }, userData?.name),
+                  React.createElement("div", { className: "bg-white p-5 rounded-[2rem] shadow-lg border border-slate-50 mb-8" },
+                    userData && React.createElement(QRCodeGenerator, { value: JSON.stringify({ uid: userData.uid, name: userData.name }), size: 180 })),
+                  React.createElement("div", { className: "w-full grid grid-cols-2 gap-3 text-sm" },
+                    React.createElement("div", { className: "p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl dark:text-white border border-transparent dark:border-slate-800" },
+                      React.createElement("span", { className: "block text-[9px] font-bold text-slate-400 uppercase mb-1" }, "المرحلة"), React.createElement("b", { className: "text-xs" }, userData?.stage)),
+                    React.createElement("div", { className: "p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl dark:text-white border border-transparent dark:border-slate-800" },
+                      React.createElement("span", { className: "block text-[9px] font-bold text-slate-400 uppercase mb-1" }, "القسم"), React.createElement("b", { className: "text-xs" }, userData?.department)))
+                )
+              )
+            );
+        }
+
+        function AdminDashboard({ setView, notify, user, preloadedStudents }) {
+          const [tab, setTab] = useState('menu');
+          const [sub, setSub] = useState('');
+          if (tab === 'menu') return React.createElement("div", { className: "grid grid-cols-1 gap-4 py-4 animate-in fade-in duration-200" },
+              React.createElement("div", { onClick: () => setTab('scan'), className: "bg-blue-600 text-white p-8 rounded-[2.5rem] cursor-pointer flex items-center gap-6 shadow-xl active:scale-95 transition-transform" },
+                React.createElement("div", { className: "p-4 bg-white/10 rounded-2xl" }, React.createElement(Scan, { size: 32 })),
+                React.createElement("span", { className: "text-xl font-black" }, "تسجيل حضور جديد")),
+              React.createElement("div", { className: "grid grid-cols-2 gap-4" },
+                React.createElement("div", { onClick: () => setTab('attendance'), className: "bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-[2rem] cursor-pointer flex flex-col items-center gap-3 active:scale-95 transition-transform" },
+                  React.createElement("div", { className: "p-3 bg-sky-50 dark:bg-sky-900/30 text-sky-500 rounded-xl" }, React.createElement(ClipboardList, { size: 24 })),
+                  React.createElement("span", { className: "text-sm font-black dark:text-white" }, "سجل الحضور")),
+                React.createElement("div", { onClick: () => setTab('members'), className: "bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-[2rem] cursor-pointer flex flex-col items-center gap-3 active:scale-95 transition-transform" },
+                  React.createElement("div", { className: "p-3 bg-slate-50 dark:bg-slate-800 text-slate-400 rounded-xl" }, React.createElement(Users, { size: 24 })),
+                  React.createElement("span", { className: "text-sm font-black dark:text-white" }, "الطلاب"))
+              ),
+              React.createElement(Button, { onClick: () => setView('landing'), variant: "outline", className: "w-full py-4 mt-4", icon: LogOut }, "خروج من النظام")
+            );
+          return React.createElement("div", { className: "animate-in slide-in-from-left duration-200" },
+              React.createElement("div", { className: "flex items-center gap-4 mb-6" },
+                React.createElement("button", { onClick: () => setTab('menu'), className: "p-2 bg-white dark:bg-slate-900 rounded-full shadow-sm border border-slate-100 dark:border-slate-800 text-slate-500" }, React.createElement(ChevronRight, { size: 24 })),
+                React.createElement("h2", { className: "font-black text-lg" }, tab === 'scan' && 'ماسح الحضور', tab === 'attendance' && 'سجلات الحضور', tab === 'members' && 'قائمة الطلاب')
+              ),
+              tab === 'scan' && React.createElement(Scanner, { sub: sub, setSub: setSub, notify: notify, user: user }),
+              tab === 'attendance' && React.createElement(AttendanceLog, { notify: notify, user: user }),
+              tab === 'members' && React.createElement(MembersLog, { notify: notify, user: user, preloadedStudents: preloadedStudents })
+            );
+        }
+
+        function Scanner({ sub, setSub, notify, user }) {
+          const [scanning, setScanning] = useState(false);
+          const scannerRef = useRef(null);
+          
+          const stopScanner = async () => {
+              if (scannerRef.current) {
+                  try {
+                      await scannerRef.current.stop();
+                      scannerRef.current = null;
+                  } catch (e) { console.warn(e); }
+              }
+          };
+
+          const start = async () => {
+            if (!sub) return notify('يرجى اختيار المادة الدراسية', 'error');
+            setScanning(true);
+            setTimeout(async () => {
+              try {
+                await stopScanner();
+                const htmlScanner = new window.Html5Qrcode("reader"); 
+                scannerRef.current = htmlScanner;
+                await htmlScanner.start(
+                    { facingMode: "environment" }, 
+                    { fps: 60, qrbox: 280, aspectRatio: 1.0 }, 
+                    async (text) => {
+                      try {
+                        const data = JSON.parse(text);
+                        if (data.uid) { 
+                            notify(`جاري التحقق من: ${data.name}...`, 'info');
+                            await processAttendance(data); 
+                        }
+                      } catch(e) {}
+                    }
+                );
+              } catch (err) { 
+                notify('لا يمكن فتح الكاميرا', 'error'); 
+                setScanning(false); 
+              }
+            }, 300);
+          };
+
+          const processAttendance = async (student) => {
+            try {
+                const userCheck = query(getColPath('users'), where('uid', '==', student.uid));
+                const userSnap = await getDocs(userCheck);
+                
+                if (userSnap.empty) { 
+                    notify(`فشل: الطالب غير مسجل أو رمز غير صالح`, 'error'); 
+                    return; 
+                }
+                
+                const dbUser = userSnap.docs[0].data();
+                if (dbUser.name !== student.name) {
+                     notify(`فشل: تلاعب في البيانات الممسوحة`, 'error'); 
+                     return;
+                }
+
+                const today = new Date().toLocaleDateString('en-GB');
+                const q = query(getColPath('attendance'), where('subject', '==', sub), where('date', '==', today), where('studentId', '==', student.uid));
+                const snap = await getDocs(q);
+                
+                if (!snap.empty) { 
+                    notify(`مسجل مسبقاً: ${student.name}`, 'info'); 
+                    return; 
+                }
+
+                await addDoc(getColPath('attendance'), { 
+                    studentName: dbUser.name, 
+                    studentId: student.uid, 
+                    subject: sub, 
+                    date: today, 
+                    time: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }), 
+                    timestamp: serverTimestamp() 
+                });
+                
+                notify(`تم تسجيل حضور: ${dbUser.name} بنجاح`);
+            } catch(e) { 
+                notify('خطأ في الاتصال بالسيرفر', 'error'); 
+            }
+          };
+
+          useEffect(() => { return () => { stopScanner(); }; }, []);
+
+          return React.createElement("div", { className: "space-y-4" },
+              !scanning ? React.createElement("div", { className: "bg-white dark:bg-slate-900 p-6 rounded-[2rem] shadow-lg border border-slate-100 dark:border-slate-800" },
+                  React.createElement("div", { className: "grid grid-cols-2 gap-2 max-h-64 overflow-y-auto p-1 custom-scrollbar" },
+                    SUBJECTS.map(s => React.createElement("button", { key: s, onClick: () => setSub(s), className: `p-3 text-[10px] rounded-xl font-bold border-2 transition-all ${sub === s ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-50 dark:bg-slate-800 border-transparent text-slate-500'}` }, s))),
+                  React.createElement(Button, { onClick: start, className: "w-full mt-8 py-4", disabled: !sub, icon: Camera }, "تفعيل الكاميرا الفوري")
+                ) : React.createElement("div", null, 
+                  React.createElement("div", { className: "relative w-full aspect-square rounded-[2.5rem] overflow-hidden bg-black border-4 border-blue-600 shadow-2xl" },
+                    React.createElement("div", { id: "reader" })
+                  ),
+                  React.createElement("button", { onClick: async () => { await stopScanner(); setScanning(false); }, className: "w-full mt-4 p-4 text-red-500 font-bold bg-white dark:bg-slate-900 rounded-2xl" }, "إلغاء المسح"))
+            );
+        }
+
+        function AttendanceLog({ notify, user }) {
+          const [selectedSub, setSelectedSub] = useState('');
+          const [logs, setLogs] = useState([]);
+          const [loading, setLoading] = useState(false);
+          useEffect(() => { 
+            if (selectedSub && user) {
+                setLoading(true);
+                getDocs(query(getColPath('attendance'), where('subject', '==', selectedSub))).then(s => {
+                    setLogs(s.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)));
+                    setLoading(false);
+                });
+            }
+          }, [selectedSub, user]);
+
+          const deleteLog = async (id) => {
+            if (window.confirm('حذف هذا القيد؟')) {
+                setLogs(prev => prev.filter(l => l.id !== id));
+                await deleteDoc(doc(getColPath('attendance'), id));
+                notify('تم الحذف');
+            }
+          };
+
+          return React.createElement("div", { className: "space-y-4" },
+              React.createElement("select", { className: "w-full p-4 rounded-2xl border-2 border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 dark:text-white font-bold outline-none focus:border-blue-500", value: selectedSub, onChange: e => setSelectedSub(e.target.value) },
+                React.createElement("option", { value: "" }, "-- اختر المادة --"), SUBJECTS.map(s => React.createElement("option", { key: s, value: s }, s))),
+              logs.length > 0 && React.createElement("div", { className: "flex justify-between items-center px-2" },
+                  React.createElement("span", { className: "text-xs font-bold text-slate-400" }, `العدد: ${logs.length}`),
+                  React.createElement("button", { onClick: () => {
+                    const csv = "\uFEFFالاسم,المادة,التاريخ,الوقت\n" + logs.map(l => `${l.studentName},${l.subject},${l.date},${l.time}`).join("\n");
+                    const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+                    link.download = `حضور_${selectedSub}.csv`; link.click();
+                  }, className: "text-blue-600 text-xs font-black flex items-center gap-1" }, React.createElement(Download, { size: 14 }), " تصدير")),
+              React.createElement("div", { className: "space-y-2 max-h-[60vh] overflow-y-auto" },
+                loading ? React.createElement("div", { className: "text-center p-10 opacity-50 text-xs" }, "جاري التحميل...") : 
+                logs.map(l => React.createElement("div", { key: l.id, className: "p-4 bg-white dark:bg-slate-900 rounded-2xl flex justify-between items-center shadow-sm border border-slate-100 dark:border-slate-800" },
+                    React.createElement("div", null, React.createElement("b", { className: "text-sm block" }, l.studentName), React.createElement("span", { className: "text-[10px] text-slate-400 font-medium" }, `${l.date} - ${l.time}`)),
+                    React.createElement("button", { onClick: () => deleteLog(l.id), className: "text-red-400 p-2 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg transition-colors" }, React.createElement(Trash2, { size: 16 }))))
+              )
+            );
+        }
+
+        function MembersLog({ notify, user, preloadedStudents }) {
+          // No internal loading state needed because data is preloaded in parent
+          return React.createElement("div", { className: "space-y-2 max-h-[70vh] overflow-y-auto animate-in fade-in duration-150" },
+                preloadedStudents.length === 0 ? React.createElement("div", { className: "text-center p-10 opacity-50 text-xs" }, "لا يوجد طلاب مسجلين حالياً") :
+                preloadedStudents.map(m => React.createElement("div", { key: m.id, className: "p-4 bg-white dark:bg-slate-900 rounded-2xl flex justify-between items-center shadow-sm border border-slate-100 dark:border-slate-800" },
+                      React.createElement("div", { className: "flex items-center gap-3" },
+                          React.createElement("div", { className: "w-10 h-10 bg-slate-50 dark:bg-slate-800 text-blue-600 rounded-full flex items-center justify-center font-black text-sm" }, m.name.charAt(0)),
+                          React.createElement("div", null, React.createElement("b", { className: "text-sm block dark:text-white" }, m.name), React.createElement("span", { className: "text-[10px] text-slate-400 font-bold uppercase" }, `CODE: ${m.accessCode}`))),
+                      React.createElement("button", { onClick: async () => {
+                        if(window.confirm(`حذف ${m.name}؟`)) { await deleteDoc(doc(getColPath('users'), m.id)); notify('تم الحذف'); }
+                      }, className: "p-2 text-red-400 hover:text-red-600 rounded-xl" }, React.createElement(Trash2, { size: 18 }))))
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
