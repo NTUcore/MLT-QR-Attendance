@@ -150,7 +150,7 @@
                             <input id="stu-pin" type="password" placeholder="رمز الدخول" class="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 ring-blue-500/20 font-bold">
                             <input id="stu-confirm" type="password" placeholder="تأكيد الرمز" class="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none focus:ring-2 ring-blue-500/20 font-bold">
                         </div>
-                        <button id="btn-stu-login" class="w-full py-4 bg-blue-600 text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all text-lg">دخول الطالب</button>
+                        <button id="btn-stu-login" class="w-full py-4 bg-blue-600 text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all text-lg">دخول / إنشاء حساب</button>
                     </div>
                     <div class="mt-10 pt-6 border-t">
                         <button id="open-admin-modal" class="w-full py-3 bg-slate-50 text-slate-500 rounded-xl font-bold text-sm flex items-center justify-center gap-2 border border-slate-100 hover:bg-slate-50">
@@ -163,14 +163,57 @@
             document.getElementById('btn-stu-login').onclick = async () => {
                 const name = document.getElementById('stu-name').value.trim();
                 const pin = document.getElementById('stu-pin').value;
+                const confirmPin = document.getElementById('stu-confirm').value;
+
                 if (name.split(' ').length < 3) return notify('يرجى كتابة الاسم الثلاثي', true);
-                if (pin !== document.getElementById('stu-confirm').value || pin.length < 4) return notify('تأكد من الرموز', true);
-                
-                const student = { uid: auth.currentUser.uid, name, role: 'student', stage: 'الثالثة', department: 'مختبرات طبية', pin: pin };
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', student.uid), student);
-                localStorage.setItem('role', 'student');
-                localStorage.setItem('userData', JSON.stringify(student));
-                userRole = 'student'; userData = student; showStudent();
+                if (pin.length < 4) return notify('الرمز يجب أن يكون 4 أرقام فأكثر', true);
+                if (pin !== confirmPin) return notify('الرموز غير متطابقة', true);
+
+                const btn = document.getElementById('btn-stu-login');
+                btn.disabled = true;
+                btn.innerText = "جاري التحقق...";
+
+                try {
+                    // التحقق إذا كان الاسم مسجلاً مسبقاً
+                    const membersRef = collection(db, 'artifacts', appId, 'public', 'data', 'members');
+                    const q = query(membersRef, where("name", "==", name));
+                    const querySnapshot = await getDocs(q);
+
+                    if (!querySnapshot.empty) {
+                        // الحساب موجود، تحقق من الرمز
+                        const existingUser = querySnapshot.docs[0].data();
+                        if (existingUser.pin === pin) {
+                            // الرمز صحيح، سجل دخول
+                            localStorage.setItem('role', 'student');
+                            localStorage.setItem('userData', JSON.stringify(existingUser));
+                            userRole = 'student'; userData = existingUser; showStudent();
+                            notify('تم تسجيل الدخول بنجاح');
+                        } else {
+                            // الرمز خاطئ
+                            notify('هذا الاسم مسجل بكلمة مرور أخرى، لا يمكنك تغييرها', true);
+                        }
+                    } else {
+                        // حساب جديد، أنشئ حساب
+                        const newStudent = { 
+                            uid: auth.currentUser.uid, 
+                            name, 
+                            role: 'student', 
+                            stage: 'الثالثة', 
+                            department: 'مختبرات طبية', 
+                            pin: pin 
+                        };
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', newStudent.uid), newStudent);
+                        localStorage.setItem('role', 'student');
+                        localStorage.setItem('userData', JSON.stringify(newStudent));
+                        userRole = 'student'; userData = newStudent; showStudent();
+                        notify('تم إنشاء الحساب بنجاح');
+                    }
+                } catch (error) {
+                    notify('حدث خطأ في الاتصال', true);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = "دخول / إنشاء حساب";
+                }
             };
 
             document.getElementById('open-admin-modal').onclick = () => document.getElementById('admin-modal').classList.add('active');
@@ -207,7 +250,7 @@
                         <div id="qrcode" class="qr-container mb-8"></div>
                         <p class="text-[10px] text-slate-400 font-bold mb-4 flex items-center gap-1"><i data-lucide="scan-line" size="12"></i> الباركود جاهز للمسح</p>
                         <button id="back-home-stu" class="w-full py-4 text-blue-600 border border-blue-50 rounded-2xl font-black flex items-center justify-center gap-2 bg-blue-50/30 active:scale-95 transition-all">
-                            <i data-lucide="home"></i> عودة للقائمة الرئيسية
+                            <i data-lucide="home"></i> تسجيل خروج
                         </button>
                     </div>
                 </div>
@@ -233,7 +276,7 @@
                     </nav>
                     <div id="admin-content" class="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-50 min-h-[480px]"></div>
                     <button id="back-home-admin" class="w-full mt-8 py-4 bg-white text-blue-600 rounded-2xl font-black flex justify-center gap-2 items-center border border-blue-100 active:scale-95 transition-all shadow-sm hover:bg-blue-50">
-                        <i data-lucide="home"></i> عودة للقائمة الرئيسية
+                        <i data-lucide="home"></i> تسجيل خروج الإدارة
                     </button>
                 `);
                 document.getElementById('tab-scan').onclick = () => { currentTab = 'scan'; stopScanner(); draw(); };
@@ -299,13 +342,12 @@
                     btnStart.classList.add('hidden'); btnStop.classList.remove('hidden');
                     
                     html5QrCode = new Html5Qrcode("reader");
-                    // Turbo Speed: 120 FPS for maximum responsiveness
                     await html5QrCode.start(
-                        { facingMode: "environment" }, { fps: 120, qrbox: { width: 280, height: 280 }, aspectRatio: 1.0 }, 
+                        { facingMode: "environment" }, { fps: 60, qrbox: { width: 280, height: 280 }, aspectRatio: 1.0 }, 
                         async (decodedText) => {
                             if (isProcessing) return; isProcessing = true;
                             await registerStudentAttendance(decodedText, currentSub);
-                            setTimeout(() => { isProcessing = false; }, 400); // Reduced delay for faster consecutive scans
+                            setTimeout(() => { isProcessing = false; }, 400);
                         }
                     ).catch(() => { btnStart.disabled = false; btnStart.classList.remove('hidden'); btnStop.classList.add('hidden'); notify("تعذر فتح الكاميرا", true); });
                 };
