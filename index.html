@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>نظام حضور جامعة التقنية الشمالية - الإصدار السريع</title>
+    <title>نظام حضور جامعة التقنية الشمالية</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -30,8 +30,9 @@
     </header>
 
     <main class="max-w-xl mx-auto p-4" id="app-root">
-        <div class="flex items-center justify-center h-64">
+        <div class="flex flex-col items-center justify-center h-64 space-y-4">
             <div class="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-600"></div>
+            <p id="loading-text" class="text-sm font-bold text-slate-400">جاري الاتصال بالنظام...</p>
         </div>
     </main>
 
@@ -63,7 +64,7 @@
                         <option value="">جاري تحميل الطلاب...</option>
                     </select>
                 </div>
-                <button id="manual-save-btn" class="w-full py-4 bg-green-600 text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all">تأكيد الحضور السحابي</button>
+                <button id="manual-save-btn" class="w-full py-4 bg-green-600 text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all">تأكيد الحضور</button>
                 <button id="manual-close-btn" class="w-full py-3 text-slate-400 font-bold text-sm bg-slate-50 rounded-xl">إغلاق</button>
             </div>
         </div>
@@ -111,6 +112,28 @@
             setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 1500);
         };
 
+        // --- Fixing Network Errors with Exponential Backoff ---
+        const signInWithRetry = async (retries = 5, delay = 1000) => {
+            try {
+                await signInAnonymously(auth);
+            } catch (error) {
+                if (retries > 0 && (error.code === 'auth/network-request-failed' || error.code === 'auth/internal-error')) {
+                    const loadingText = document.getElementById('loading-text');
+                    if(loadingText) loadingText.innerText = `فشل الاتصال، جاري إعادة المحاولة... (${6 - retries})`;
+                    await new Promise(res => setTimeout(res, delay));
+                    return signInWithRetry(retries - 1, delay * 2);
+                }
+                notify("خطأ في الاتصال بالشبكة. يرجى التأكد من الإنترنت.", true);
+                render(`
+                    <div class="text-center py-20 space-y-4">
+                        <div class="text-red-500 mb-4"><i data-lucide="wifi-off" size="48" class="mx-auto"></i></div>
+                        <p class="font-bold text-slate-600 text-lg">لا يوجد اتصال بالخادم</p>
+                        <button onclick="window.location.reload()" class="px-6 py-3 bg-blue-600 text-white rounded-2xl font-bold">إعادة تحميل الصفحة</button>
+                    </div>
+                `);
+            }
+        };
+
         const goBackToHome = async () => {
             if (html5QrCode && html5QrCode.isScanning) {
                 try { await html5QrCode.stop(); } catch(e) {}
@@ -125,13 +148,21 @@
         const loadMembers = () => {
             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'members'), (snap) => {
                 membersCache = {};
-                snap.forEach(doc => { membersCache[doc.id] = doc.data().name; });
+                snap.forEach(doc => {
+                    membersCache[doc.id] = doc.data().name;
+                });
+            }, (error) => {
+                console.error("Snapshot error:", error);
             });
         };
 
+        // Initialize Auth with Retry
         onAuthStateChanged(auth, (user) => {
-            if (!user) signInAnonymously(auth);
-            showView();
+            if (!user) {
+                signInWithRetry();
+            } else {
+                showView();
+            }
         });
 
         const showView = () => {
@@ -161,16 +192,21 @@
             `);
 
             document.getElementById('btn-stu-login').onclick = async () => {
+                if (!auth.currentUser) return notify("جاري تهيئة الاتصال، انتظر لحظة...", true);
                 const name = document.getElementById('stu-name').value.trim();
                 const pin = document.getElementById('stu-pin').value;
                 if (name.split(' ').length < 3) return notify('يرجى كتابة الاسم الثلاثي', true);
                 if (pin !== document.getElementById('stu-confirm').value || pin.length < 4) return notify('تأكد من الرموز', true);
                 
-                const student = { uid: auth.currentUser.uid, name, role: 'student', stage: 'الثالثة', department: 'مختبرات طبية', pin: pin };
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', student.uid), student);
-                localStorage.setItem('role', 'student');
-                localStorage.setItem('userData', JSON.stringify(student));
-                userRole = 'student'; userData = student; showStudent();
+                try {
+                    const student = { uid: auth.currentUser.uid, name, role: 'student', stage: 'الثالثة', department: 'مختبرات طبية', pin: pin };
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', student.uid), student);
+                    localStorage.setItem('role', 'student');
+                    localStorage.setItem('userData', JSON.stringify(student));
+                    userRole = 'student'; userData = student; showStudent();
+                } catch(e) {
+                    notify("فشل التسجيل، تأكد من الإنترنت", true);
+                }
             };
 
             document.getElementById('open-admin-modal').onclick = () => document.getElementById('admin-modal').classList.add('active');
@@ -212,6 +248,7 @@
                     </div>
                 </div>
             `);
+
             setTimeout(() => {
                 const qrContainer = document.getElementById("qrcode");
                 if (qrContainer) {
@@ -219,6 +256,7 @@
                     new QRCode(qrContainer, { text: userData.uid, width: 220, height: 220, colorDark: "#1e40af", correctLevel: QRCode.CorrectLevel.L });
                 }
             }, 50);
+
             document.getElementById('back-home-stu').onclick = goBackToHome;
         };
 
@@ -251,24 +289,35 @@
 
             const registerStudentAttendance = async (sId, subject) => {
                 const realName = membersCache[sId];
-                if (!realName) { notify("هذا الطالب غير مسجل في النظام!", true); return false; }
-
+                if (!realName) {
+                    notify("هذا الطالب غير مسجل في النظام!", true);
+                    return false;
+                }
                 const todayDate = new Date().toISOString().split('T')[0];
                 const attendanceRef = collection(db, 'artifacts', appId, 'public', 'data', 'attendance');
                 
-                const q = query(attendanceRef, where("studentId", "==", sId), where("subject", "==", subject), where("date", "==", todayDate));
-                const snapshot = await getDocs(q);
-
-                if (!snapshot.empty) { notify(`مسجل مسبقاً: ${realName}`, true); return true; }
-
-                notify(`تم الحضور: ${realName}`);
-                if (navigator.vibrate) navigator.vibrate(80);
-
-                await addDoc(attendanceRef, { 
-                    studentId: sId, studentName: realName, subject: subject, 
-                    date: todayDate, time: new Date().toLocaleTimeString('ar-EG'), timestamp: serverTimestamp() 
-                });
-                return true;
+                try {
+                    const q = query(attendanceRef, where("studentId", "==", sId), where("subject", "==", subject), where("date", "==", todayDate));
+                    const snapshot = await getDocs(q);
+                    if (!snapshot.empty) {
+                        notify(`مسجل مسبقاً: ${realName}`, true);
+                        return true; 
+                    }
+                    notify(`تم الحضور: ${realName}`);
+                    if (navigator.vibrate) navigator.vibrate(80);
+                    await addDoc(attendanceRef, { 
+                        studentId: sId, 
+                        studentName: realName, 
+                        subject: subject, 
+                        date: todayDate, 
+                        time: new Date().toLocaleTimeString('ar-EG'), 
+                        timestamp: serverTimestamp() 
+                    });
+                    return true;
+                } catch(e) {
+                    notify("خطأ في الشبكة أثناء التسجيل", true);
+                    return false;
+                }
             };
 
             const drawScanner = () => {
@@ -299,13 +348,14 @@
                     btnStart.classList.add('hidden'); btnStop.classList.remove('hidden');
                     
                     html5QrCode = new Html5Qrcode("reader");
-                    // Turbo Speed: 120 FPS for maximum responsiveness
                     await html5QrCode.start(
-                        { facingMode: "environment" }, { fps: 120, qrbox: { width: 280, height: 280 }, aspectRatio: 1.0 }, 
+                        { facingMode: "environment" }, 
+                        { fps: 60, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 }, 
                         async (decodedText) => {
-                            if (isProcessing) return; isProcessing = true;
+                            if (isProcessing) return; 
+                            isProcessing = true;
                             await registerStudentAttendance(decodedText, currentSub);
-                            setTimeout(() => { isProcessing = false; }, 400); // Reduced delay for faster consecutive scans
+                            setTimeout(() => { isProcessing = false; }, 800);
                         }
                     ).catch(() => { btnStart.disabled = false; btnStart.classList.remove('hidden'); btnStop.classList.add('hidden'); notify("تعذر فتح الكاميرا", true); });
                 };
@@ -316,16 +366,11 @@
                 const date = new Date().toISOString().split('T')[0];
                 document.getElementById('admin-content').innerHTML = `
                     <div class="space-y-4">
-                        <div class="flex justify-between items-center mb-2 gap-2">
+                        <div class="flex justify-between items-center mb-2">
                              <h4 class="font-black text-slate-800 text-sm">سجل الحضور</h4>
-                             <div class="flex gap-2">
-                                <button id="btn-download" class="px-3 py-2 bg-green-50 text-green-600 rounded-xl text-xs font-black border border-green-100 flex items-center gap-1 active:scale-95 transition-transform">
-                                    <i data-lucide="download" size="14"></i> تنزيل حضور
-                                </button>
-                                <button id="btn-manual-add" class="px-3 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-black border border-blue-100 flex items-center gap-1 active:scale-95 transition-transform">
-                                    <i data-lucide="plus-circle" size="14"></i> إضافة حضور
-                                </button>
-                             </div>
+                             <button id="btn-manual-add" class="px-3 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-black border border-blue-100 flex items-center gap-1 active:scale-95 transition-transform">
+                                <i data-lucide="plus-circle" size="14"></i> إضافة حضور
+                             </button>
                         </div>
                         <div class="grid grid-cols-2 gap-2">
                             <select id="log-sub" class="p-3 bg-slate-50 rounded-xl border-none text-[10px] font-black outline-none">${SUBJECTS.map(s => `<option>${s}</option>`).join('')}</select>
@@ -345,16 +390,16 @@
                         select.innerHTML += `<option value="${id}">${name}</option>`;
                     });
                     document.getElementById('manual-modal').classList.add('active');
-
                     document.getElementById('manual-save-btn').onclick = async () => {
                         const sId = select.value;
                         if (!sId) return notify("يرجى اختيار طالب", true);
-                        document.getElementById('manual-save-btn').innerText = "جاري التسجيل السحابي...";
+                        document.getElementById('manual-save-btn').innerText = "جاري التسجيل...";
                         await registerStudentAttendance(sId, sub);
-                        document.getElementById('manual-save-btn').innerText = "تأكيد الحضور السحابي";
+                        document.getElementById('manual-save-btn').innerText = "تأكيد الحضور";
                         document.getElementById('manual-modal').classList.remove('active');
                     };
                 };
+
                 document.getElementById('manual-close-btn').onclick = () => document.getElementById('manual-modal').classList.remove('active');
 
                 const update = () => {
@@ -363,23 +408,6 @@
                     onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), (snap) => {
                         const items = snap.docs.map(doc => ({id: doc.id, ...doc.data()}))
                             .filter(a => a.subject === sub && a.date === d).sort((a,b) => b.timestamp - a.timestamp);
-                        
-                        document.getElementById('btn-download').onclick = () => {
-                            if (!items.length) return notify("لا توجد بيانات للتنزيل", true);
-                            const bom = "\uFEFF"; 
-                            const csvContent = bom + "اسم الطالب,الوقت,التاريخ,المادة\n" + 
-                                items.map(e => `${e.studentName},${e.time},${e.date},${e.subject}`).join("\n");
-                            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                            const url = URL.createObjectURL(blob);
-                            const link = document.createElement("a");
-                            link.setAttribute("href", url);
-                            link.setAttribute("download", `حضور_${sub}_${d}.csv`);
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            notify("تم تنزيل الحضور بنجاح");
-                        };
-
                         document.getElementById('attendance-list').innerHTML = items.length ? items.map((a, i) => `
                             <div class="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border-r-4 border-indigo-500 animate-in" style="animation-delay: ${i*0.05}s">
                                 <div><p class="font-bold text-sm text-slate-800">${a.studentName}</p><p class="text-[10px] text-slate-400 font-bold flex items-center gap-1"><i data-lucide="clock" size="10"></i> ${a.time}</p></div>
@@ -388,7 +416,7 @@
                         `).join('') : '<div class="text-center py-20 text-slate-300 text-sm font-bold italic flex flex-col items-center gap-2"><i data-lucide="clipboard-x" size="24"></i> القائمة فارغة</div>';
                         lucide.createIcons();
                         document.querySelectorAll('.del-log').forEach(b => b.onclick = () => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', b.dataset.id)));
-                    });
+                    }, (err) => console.log(err));
                 };
                 document.getElementById('log-sub').onchange = update;
                 document.getElementById('log-date').onchange = update;
@@ -407,7 +435,7 @@
                     `).join('') || '<p class="text-center py-10 text-slate-300 italic">لا يوجد طلاب</p>';
                     lucide.createIcons();
                     document.querySelectorAll('.del-mem').forEach(b => b.onclick = () => confirm('حذف الطالب نهائياً؟') && deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'members', b.dataset.id)));
-                });
+                }, (err) => console.log(err));
             };
             draw();
         };
