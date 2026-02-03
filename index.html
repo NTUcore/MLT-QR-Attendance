@@ -69,6 +69,21 @@
         </div>
     </div>
 
+    <!-- Manual Attendance Modal -->
+    <div id="manual-modal" class="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-sm items-center justify-center p-4">
+        <div class="bg-white rounded-[2rem] p-6 w-full max-sm shadow-2xl animate-in border border-slate-100">
+            <h3 class="text-lg font-black mb-4 text-center text-slate-800 border-b pb-2">إضافة حضور يدوي</h3>
+            <div class="space-y-4">
+                <p class="text-xs text-slate-500 font-bold text-center">سجل حضور لطالب بدون مسح الكود</p>
+                <select id="manual-stu-select" class="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-slate-700 shadow-inner">
+                    <option value="">اختر الطالب...</option>
+                </select>
+                <button id="btn-confirm-manual" class="w-full py-4 bg-green-600 text-white font-black rounded-2xl shadow-lg transition-transform duration-75">تثبيت الحضور</button>
+                <button id="manual-close-btn" class="w-full py-2 text-slate-400 font-bold text-sm">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getFirestore, collection, doc, setDoc, getDoc, getDocs, addDoc, onSnapshot, query, where, deleteDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
@@ -108,7 +123,7 @@
             if(oldToast) oldToast.remove();
 
             const toast = document.createElement('div');
-            toast.className = `toast-msg fixed top-24 left-1/2 -translate-x-1/2 z-[110] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold animate-in flex items-center gap-2 ${isError ? 'bg-red-500' : 'bg-green-600'}`;
+            toast.className = `toast-msg fixed top-24 left-1/2 -translate-x-1/2 z-[150] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold animate-in flex items-center gap-2 ${isError ? 'bg-red-500' : 'bg-green-600'}`;
             toast.innerHTML = isError ? `<i data-lucide="alert-circle" size="18"></i> ${msg}` : `<i data-lucide="check-circle" size="18"></i> ${msg}`;
             document.body.appendChild(toast);
             lucide.createIcons();
@@ -189,18 +204,11 @@
                 const stage = document.getElementById('stu-stage').value;
                 const type = document.getElementById('stu-type').value;
                 const pin = document.getElementById('stu-pin').value;
-                const pinConfirm = document.getElementById('stu-confirm').value;
-
-                // شرط الاسم الرباعي: يجب أن يحتوي على 4 كلمات على الأقل
+                
                 const nameParts = name.split(/\s+/).filter(p => p.length > 0);
-                if (nameParts.length < 4) {
-                    return notify('يجب كتابة الاسم رباعي كاملاً', true);
-                }
+                if (nameParts.length < 4) return notify('يجب كتابة الاسم رباعي كاملاً', true);
 
-                if (!name || !stage || !type || !pin || pin !== pinConfirm) {
-                    return notify('تأكد من البيانات والرموز', true);
-                }
-
+                if (!name || !stage || !type || !pin || pin !== document.getElementById('stu-confirm').value) return notify('تأكد من البيانات والرموز', true);
                 const btn = document.getElementById('btn-stu-login'); btn.disabled = true;
                 try {
                     const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'members'), where("name", "==", name));
@@ -282,6 +290,7 @@
                 snap.forEach(doc => {
                     localStudentsCache[doc.id] = doc.data().name;
                 });
+                return localStudentsCache;
             };
 
             const draw = () => {
@@ -340,46 +349,18 @@
                 document.getElementById('start-scan').onclick = async () => {
                     if (!selSub.value || selSub.value.includes('تحميل')) return notify('اختر مادة أولاً', true);
                     document.getElementById('start-scan').classList.add('hidden'); document.getElementById('stop-scan').classList.remove('hidden');
-                    
                     const sessionScanned = new Set();
-                    
                     html5QrCode = new Html5Qrcode("reader");
-                    const config = { 
-                        fps: 120, 
-                        qrbox: { width: 290, height: 290 }, 
-                        aspectRatio: 1.0, 
-                        disableFlip: true,
-                        videoConstraints: {
-                            facingMode: "environment",
-                            width: { ideal: 1920 }, 
-                            height: { ideal: 1080 },
-                            focusMode: "continuous"
-                        }
-                    };
-
+                    const config = { fps: 120, qrbox: { width: 290, height: 290 }, aspectRatio: 1.0, disableFlip: true, videoConstraints: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 }, focusMode: "continuous" } };
                     html5QrCode.start({ facingMode: "environment" }, config, (text) => {
                         if (sessionScanned.has(text)) return; 
-
                         const studentName = localStudentsCache[text];
-                        
                         if (studentName) {
-                            sessionScanned.add(text);
-                            setTimeout(() => sessionScanned.delete(text), 120000);
-
-                            notify(`تم: ${studentName}`);
-                            if (navigator.vibrate) navigator.vibrate(50); 
-
+                            sessionScanned.add(text); setTimeout(() => sessionScanned.delete(text), 120000);
+                            notify(`تم: ${studentName}`); if (navigator.vibrate) navigator.vibrate(50); 
                             const today = new Date().toISOString().split('T')[0];
-                            addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
-                                studentId: text, studentName: studentName, subject: selSub.value, 
-                                stage: adminStage, type: adminType, date: today, 
-                                time: new Date().toLocaleTimeString('ar-EG'), timestamp: serverTimestamp()
-                            }).catch(err => {
-                                notify(`فشل حفظ: ${studentName}`, true);
-                                sessionScanned.delete(text); 
-                            });
+                            addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), { studentId: text, studentName: studentName, subject: selSub.value, stage: adminStage, type: adminType, date: today, time: new Date().toLocaleTimeString('ar-EG'), timestamp: serverTimestamp() }).catch(err => { notify(`فشل حفظ: ${studentName}`, true); sessionScanned.delete(text); });
                         } 
-                        
                     }).catch(() => notify("تأكد من إذن الكاميرا", true));
                 };
                 document.getElementById('stop-scan').onclick = () => { stopScanner(); document.getElementById('start-scan').classList.remove('hidden'); document.getElementById('stop-scan').classList.add('hidden'); };
@@ -389,7 +370,10 @@
                 const date = new Date().toISOString().split('T')[0];
                 document.getElementById('admin-content').innerHTML = `
                     <div class="space-y-4 animate-in">
-                        <div class="flex justify-between items-center"><h4 class="font-black text-sm text-slate-800">سجل الحضور</h4><div class="flex gap-2"><button id="btn-download" class="px-3 py-2 bg-green-50 text-green-600 rounded-xl text-xs font-black hover:bg-green-100 transition-colors">تنزيل</button><button id="btn-manage-subjects" class="px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-black hover:bg-indigo-100 transition-colors">المواد</button></div></div>
+                        <div class="flex flex-col gap-3">
+                             <div class="flex justify-between items-center"><h4 class="font-black text-sm text-slate-800">سجل الحضور</h4><div class="flex gap-2"><button id="btn-download" class="px-3 py-2 bg-green-50 text-green-600 rounded-xl text-xs font-black hover:bg-green-100 transition-colors">تنزيل</button><button id="btn-manage-subjects" class="px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-black hover:bg-indigo-100 transition-colors">المواد</button></div></div>
+                             <button id="btn-add-manual" class="w-full py-3 bg-blue-50 text-blue-600 rounded-2xl font-black text-sm flex items-center justify-center gap-2 border border-blue-100 hover:bg-blue-100 transition-colors"><i data-lucide="plus-circle" size="16"></i> إضافة حضور يدوي</button>
+                        </div>
                         <div class="grid grid-cols-2 gap-2"><select id="log-sub" class="p-3 bg-slate-50 rounded-xl border-none text-[10px] font-black outline-none shadow-sm"></select><input id="log-date" type="date" value="${date}" class="p-3 bg-slate-50 rounded-xl border-none text-[10px] font-black text-center shadow-sm"></div>
                         <div id="attendance-list" class="space-y-2 max-h-[350px] overflow-y-auto no-scrollbar"></div>
                     </div>
@@ -405,9 +389,7 @@
                         document.getElementById('attendance-list').innerHTML = items.map(a => `
                             <div class="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border-r-4 border-indigo-500 shadow-sm animate-in">
                                 <div><p class="font-bold text-sm text-slate-800">${a.studentName}</p><p class="text-[10px] text-slate-400 font-bold">${a.time}</p></div>
-                                <button onclick="window.deleteEntry('att', '${a.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded-full transition-all">
-                                    <i data-lucide="trash-2" size="20"></i>
-                                </button>
+                                <button onclick="window.deleteEntry('att', '${a.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded-full transition-all"><i data-lucide="trash-2" size="20"></i></button>
                             </div>`).join('') || '<div class="text-center py-10 text-slate-300">السجل فارغ</div>';
                         lucide.createIcons();
                     });
@@ -417,6 +399,32 @@
                     snap.forEach(d => logSub.innerHTML += `<option>${d.data().name}</option>`); update();
                 });
                 logSub.onchange = update; document.getElementById('log-date').onchange = update;
+                
+                document.getElementById('btn-add-manual').onclick = async () => {
+                    if (!logSub.value || logSub.value.includes('تحميل') || logSub.value.includes('توجد')) return notify('اختر مادة أولاً', true);
+                    const students = await prefetchStudents();
+                    const sel = document.getElementById('manual-stu-select');
+                    sel.innerHTML = '<option value="">اختر الطالب...</option>';
+                    Object.entries(students).forEach(([uid, name]) => {
+                        sel.innerHTML += `<option value="${uid}">${name}</option>`;
+                    });
+                    document.getElementById('manual-modal').classList.add('active');
+                };
+
+                document.getElementById('btn-confirm-manual').onclick = async () => {
+                    const uid = document.getElementById('manual-stu-select').value;
+                    if (!uid) return notify('يرجى اختيار طالب', true);
+                    const studentName = localStudentsCache[uid];
+                    const today = new Date().toISOString().split('T')[0];
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
+                        studentId: uid, studentName, subject: logSub.value, stage: adminStage, type: adminType,
+                        date: today, time: new Date().toLocaleTimeString('ar-EG'), timestamp: serverTimestamp()
+                    });
+                    notify('تمت الإضافة يدوياً');
+                    document.getElementById('manual-modal').classList.remove('active');
+                };
+                
+                document.getElementById('manual-close-btn').onclick = () => document.getElementById('manual-modal').classList.remove('active');
                 document.getElementById('btn-manage-subjects').onclick = () => {
                     document.getElementById('sub-modal-stage').innerText = adminStage; document.getElementById('sub-modal-type').innerText = adminType;
                     onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'subjects'), where('stage', '==', adminStage), where('type', '==', adminType)), (snap) => {
@@ -442,9 +450,7 @@
                       document.getElementById('members-list').innerHTML = snap.docs.map(d => `
                         <div class="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border shadow-sm animate-in">
                             <div><p class="font-bold text-sm text-slate-800">${d.data().name}</p><p class="text-[10px] text-blue-600 font-black">الرمز: ${d.data().pin}</p></div>
-                            <button onclick="window.deleteEntry('mem', '${d.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded-full transition-all">
-                                <i data-lucide="trash-2" size="20"></i>
-                            </button>
+                            <button onclick="window.deleteEntry('mem', '${d.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded-full transition-all"><i data-lucide="trash-2" size="20"></i></button>
                         </div>`).join('') || '<p class="text-center py-10 text-slate-300">لا يوجد طلاب</p>';
                       lucide.createIcons();
                 });
