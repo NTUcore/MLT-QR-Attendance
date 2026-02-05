@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>نظام حضور جامعة التقنية الشمالية</title>
-    <link rel="manifest" href="manifest.json">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -19,8 +18,8 @@
         #reader video { border-radius: 1.5rem; object-fit: cover !important; }
         .animate-in { animation: fadeIn 0.15s cubic-bezier(0.4, 0, 0.2, 1) forwards; will-change: transform, opacity; }
         @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
-        #admin-modal, #manual-modal, #subject-modal { display: none; }
-        #admin-modal.active, #manual-modal.active, #subject-modal.active { display: flex; }
+        #admin-modal, #manual-modal, #subject-modal, #pin-modal { display: none; }
+        #admin-modal.active, #manual-modal.active, #subject-modal.active, #pin-modal.active { display: flex; }
         button:active { transform: scale(0.96); transition: transform 0.05s ease-in-out; }
     </style>
 </head>
@@ -49,6 +48,18 @@
                 <input id="adm-pass" type="password" placeholder="كلمة المرور" class="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-center shadow-inner">
                 <button id="adm-confirm" class="w-full py-4 bg-blue-600 text-white font-black rounded-2xl shadow-lg transition-transform duration-75">متابعة</button>
                 <button id="adm-cancel" class="w-full py-2 text-slate-400 font-bold text-sm">إلغاء</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PIN Modal for Subjects -->
+    <div id="pin-modal" class="fixed inset-0 z-[120] bg-slate-900/60 backdrop-blur-sm items-center justify-center p-4">
+        <div class="bg-white rounded-[2rem] p-8 w-full max-sm shadow-2xl animate-in">
+            <h3 class="text-xl font-black mb-6 text-center text-slate-800">رمز حماية المواد</h3>
+            <div class="space-y-4">
+                <input id="subject-pin-input" type="password" placeholder="أدخل الرمز" class="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-center shadow-inner">
+                <button id="btn-pin-confirm" class="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-lg transition-transform duration-75">دخول</button>
+                <button id="btn-pin-cancel" class="w-full py-2 text-slate-400 font-bold text-sm">إلغاء</button>
             </div>
         </div>
     </div>
@@ -122,9 +133,8 @@
         const notify = (msg, isError = false) => {
             const oldToast = document.querySelector('.toast-msg');
             if(oldToast) oldToast.remove();
-
             const toast = document.createElement('div');
-            toast.className = `toast-msg fixed top-24 left-1/2 -translate-x-1/2 z-[150] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold animate-in flex items-center gap-2 ${isError ? 'bg-red-500' : 'bg-green-600'}`;
+            toast.className = `toast-msg fixed top-24 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 rounded-2xl shadow-2xl text-white font-bold animate-in flex items-center gap-2 ${isError ? 'bg-red-500' : 'bg-green-600'}`;
             toast.innerHTML = isError ? `<i data-lucide="alert-circle" size="18"></i> ${msg}` : `<i data-lucide="check-circle" size="18"></i> ${msg}`;
             document.body.appendChild(toast);
             lucide.createIcons();
@@ -144,9 +154,7 @@
                 const docRef = doc(db, 'artifacts', appId, 'public', 'data', coll, id);
                 await deleteDoc(docRef);
                 notify('تم الحذف فوراً');
-            } catch (err) {
-                notify('خطأ في الاتصال', true);
-            }
+            } catch (err) { notify('خطأ في الاتصال', true); }
         };
 
         const goBackToHome = () => {
@@ -184,7 +192,9 @@
                             </select>
                              <select id="stu-type" class="w-full p-4 bg-slate-50 rounded-2xl border-none outline-none font-bold text-slate-600 shadow-sm">
                                 <option value="" disabled selected>نوع الدراسة</option>
-                                <option value="صباحي">صباحي</option><option value="مسائي">مسائي</option>
+                                <option value="صباحي">صباحي</option>
+                                <option value="مسائي">مسائي</option>
+                                <option value="استضافة صباحي">استضافة صباحي</option>
                             </select>
                         </div>
                         <div class="grid grid-cols-2 gap-2">
@@ -205,10 +215,8 @@
                 const stage = document.getElementById('stu-stage').value;
                 const type = document.getElementById('stu-type').value;
                 const pin = document.getElementById('stu-pin').value;
-                
                 const nameParts = name.split(/\s+/).filter(p => p.length > 0);
                 if (nameParts.length < 4) return notify('يجب كتابة الاسم رباعي كاملاً', true);
-
                 if (!name || !stage || !type || !pin || pin !== document.getElementById('stu-confirm').value) return notify('تأكد من البيانات والرموز', true);
                 const btn = document.getElementById('btn-stu-login'); btn.disabled = true;
                 try {
@@ -246,26 +254,15 @@
                     <div class="p-6 text-center border-b bg-slate-50/50">
                         <h2 class="text-xl font-black text-blue-800 mb-2">${userData.name}</h2>
                          <div class="flex justify-between items-center px-2 mt-4 bg-white p-3 rounded-xl shadow-sm border border-slate-100">
-                             <div class="text-center w-1/3 border-l">
-                                <span class="text-[10px] text-slate-400 block font-bold">المرحلة</span>
-                                <span class="text-sm font-black text-slate-700">${userData.stage}</span>
-                            </div>
-                            <div class="text-center w-1/3 border-l">
-                                <span class="text-[10px] text-slate-400 block font-bold">الدراسة</span>
-                                <span class="text-sm font-black text-slate-700">${userData.type}</span>
-                            </div>
-                            <div class="text-center w-1/3">
-                                <span class="text-[10px] text-slate-400 block font-bold">القسم</span>
-                                <span class="text-sm font-black text-slate-700">مختبرات طبية</span>
-                            </div>
+                             <div class="text-center w-1/3 border-l"><span class="text-[10px] text-slate-400 block font-bold">المرحلة</span><span class="text-sm font-black text-slate-700">${userData.stage}</span></div>
+                             <div class="text-center w-1/3 border-l"><span class="text-[10px] text-slate-400 block font-bold">الدراسة</span><span class="text-sm font-black text-slate-700">${userData.type}</span></div>
+                             <div class="text-center w-1/3"><span class="text-[10px] text-slate-400 block font-bold">القسم</span><span class="text-sm font-black text-slate-700">مختبرات طبية</span></div>
                         </div>
                     </div>
                     <div class="p-8 text-center flex flex-col items-center">
                         <div id="qrcode" class="qr-container mb-8"></div>
                         <p class="text-[10px] text-slate-400 font-bold mb-6 flex items-center gap-1"><i data-lucide="scan-line" size="12"></i> الباركود جاهز للمسح</p>
-                        <button id="back-home-stu" class="w-full py-4 text-blue-600 border border-blue-100 rounded-2xl font-black flex items-center justify-center gap-2 bg-blue-50/50 hover:bg-blue-100 transition-colors">
-                            <i data-lucide="home"></i> عودة الى شاشة رئيسية
-                        </button>
+                        <button id="back-home-stu" class="w-full py-4 text-blue-600 border border-blue-100 rounded-2xl font-black flex items-center justify-center gap-2 bg-blue-50/50 hover:bg-blue-100 transition-colors"><i data-lucide="home"></i> عودة الى شاشة رئيسية</button>
                     </div>
                 </div>
             `);
@@ -281,16 +278,13 @@
 
         const showAdmin = () => {
             let currentTab = 'scan';
-            
+            let currentLogData = []; 
+
             const prefetchStudents = async () => {
                 localStudentsCache = {}; 
-                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'members'), 
-                              where('stage', '==', adminStage), 
-                              where('type', '==', adminType));
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'members'), where('stage', '==', adminStage), where('type', '==', adminType));
                 const snap = await getDocs(q);
-                snap.forEach(doc => {
-                    localStudentsCache[doc.id] = doc.data().name;
-                });
+                snap.forEach(doc => { localStudentsCache[doc.id] = doc.data().name; });
                 return localStudentsCache;
             };
 
@@ -306,6 +300,7 @@
                         <select id="adm-filter-type" class="bg-blue-700 text-white font-bold rounded-xl p-2 text-xs border-none outline-none cursor-pointer">
                             <option value="صباحي" ${adminType === 'صباحي' ? 'selected' : ''}>صباحي</option>
                             <option value="مسائي" ${adminType === 'مسائي' ? 'selected' : ''}>مسائي</option>
+                            <option value="استضافة صباحي" ${adminType === 'استضافة صباحي' ? 'selected' : ''}>استضافة صباحي</option>
                         </select>
                     </div>
                     <nav class="flex bg-white p-2 rounded-3xl shadow-xl gap-2 mb-4">
@@ -318,9 +313,7 @@
                         <i data-lucide="home"></i> عودة الى شاشة رئيسية
                     </button>
                 `);
-                
                 prefetchStudents();
-                
                 document.getElementById('adm-filter-stage').onchange = (e) => { adminStage = e.target.value; localStorage.setItem('adminStage', adminStage); stopScanner(); draw(); };
                 document.getElementById('adm-filter-type').onchange = (e) => { adminType = e.target.value; localStorage.setItem('adminType', adminType); stopScanner(); draw(); };
                 document.getElementById('tab-scan').onclick = () => { currentTab = 'scan'; stopScanner(); draw(); };
@@ -346,7 +339,6 @@
                     selSub.innerHTML = snap.empty ? '<option disabled selected>لا توجد مواد</option>' : '';
                     snap.forEach(d => selSub.innerHTML += `<option value="${d.data().name}">${d.data().name}</option>`);
                 });
-
                 document.getElementById('start-scan').onclick = async () => {
                     if (!selSub.value || selSub.value.includes('تحميل')) return notify('اختر مادة أولاً', true);
                     document.getElementById('start-scan').classList.add('hidden'); document.getElementById('stop-scan').classList.remove('hidden');
@@ -372,7 +364,7 @@
                 document.getElementById('admin-content').innerHTML = `
                     <div class="space-y-4 animate-in">
                         <div class="flex flex-col gap-3">
-                             <div class="flex justify-between items-center"><h4 class="font-black text-sm text-slate-800">سجل الحضور</h4><div class="flex gap-2"><button id="btn-download" class="px-3 py-2 bg-green-50 text-green-600 rounded-xl text-xs font-black hover:bg-green-100 transition-colors">تنزيل</button><button id="btn-manage-subjects" class="px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-black hover:bg-indigo-100 transition-colors">المواد</button></div></div>
+                             <div class="flex justify-between items-center"><h4 class="font-black text-sm text-slate-800">سجل الحضور</h4><div class="flex gap-2"><button id="btn-download" class="px-3 py-2 bg-green-50 text-green-600 rounded-xl text-xs font-black hover:bg-green-100 transition-colors">تنزيل ملف CSV</button><button id="btn-manage-subjects" class="px-3 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-black hover:bg-indigo-100 transition-colors">المواد</button></div></div>
                              <button id="btn-add-manual" class="w-full py-3 bg-blue-50 text-blue-600 rounded-2xl font-black text-sm flex items-center justify-center gap-2 border border-blue-100 hover:bg-blue-100 transition-colors"><i data-lucide="plus-circle" size="16"></i> إضافة حضور يدوي</button>
                         </div>
                         <div class="grid grid-cols-2 gap-2"><select id="log-sub" class="p-3 bg-slate-50 rounded-xl border-none text-[10px] font-black outline-none shadow-sm"></select><input id="log-date" type="date" value="${date}" class="p-3 bg-slate-50 rounded-xl border-none text-[10px] font-black text-center shadow-sm"></div>
@@ -386,12 +378,8 @@
                     if (!sub || sub.includes('توجد')) return;
                     if (unsubLogs) unsubLogs();
                     unsubLogs = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), where('stage', '==', adminStage), where('type', '==', adminType), where('subject', '==', sub), where('date', '==', d)), (snap) => {
-                        const items = snap.docs.map(doc => ({id: doc.id, ...doc.data()})).sort((a,b) => b.timestamp - a.timestamp);
-                        document.getElementById('attendance-list').innerHTML = items.map(a => `
-                            <div class="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border-r-4 border-indigo-500 shadow-sm animate-in">
-                                <div><p class="font-bold text-sm text-slate-800">${a.studentName}</p><p class="text-[10px] text-slate-400 font-bold">${a.time}</p></div>
-                                <button onclick="window.deleteEntry('att', '${a.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded-full transition-all"><i data-lucide="trash-2" size="20"></i></button>
-                            </div>`).join('') || '<div class="text-center py-10 text-slate-300">السجل فارغ</div>';
+                        currentLogData = snap.docs.map(doc => ({id: doc.id, ...doc.data()})).sort((a,b) => b.timestamp - a.timestamp);
+                        document.getElementById('attendance-list').innerHTML = currentLogData.map(a => `<div class="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border-r-4 border-indigo-500 shadow-sm animate-in"><div><p class="font-bold text-sm text-slate-800">${a.studentName}</p><p class="text-[10px] text-slate-400 font-bold">${a.time}</p></div><button onclick="window.deleteEntry('att', '${a.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded-full transition-all"><i data-lucide="trash-2" size="20"></i></button></div>`).join('') || '<div class="text-center py-10 text-slate-300">السجل فارغ</div>';
                         lucide.createIcons();
                     });
                 };
@@ -401,32 +389,61 @@
                 });
                 logSub.onchange = update; document.getElementById('log-date').onchange = update;
                 
+                // CSV Export Logic with BOM for Arabic support
+                document.getElementById('btn-download').onclick = () => {
+                    if (!currentLogData || currentLogData.length === 0) return notify('لا توجد بيانات للتنزيل', true);
+                    const sub = logSub.value;
+                    const dateVal = document.getElementById('log-date').value;
+                    
+                    let csvContent = "\uFEFF"; // BOM for Excel Arabic support
+                    csvContent += "ت,الاسم الرباعي,المادة,التاريخ,وقت الحضور\n";
+
+                    currentLogData.forEach((item, index) => {
+                        const name = item.studentName.replace(/,/g, " "); // Handle commas in names
+                        const row = `${index + 1},${name},${sub},${dateVal},${item.time}`;
+                        csvContent += row + "\n";
+                    });
+
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `حضور_${sub}_${dateVal}.csv`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                };
+
                 document.getElementById('btn-add-manual').onclick = async () => {
                     if (!logSub.value || logSub.value.includes('تحميل') || logSub.value.includes('توجد')) return notify('اختر مادة أولاً', true);
                     const students = await prefetchStudents();
-                    const sel = document.getElementById('manual-stu-select');
-                    sel.innerHTML = '<option value="">اختر الطالب...</option>';
-                    Object.entries(students).forEach(([uid, name]) => {
-                        sel.innerHTML += `<option value="${uid}">${name}</option>`;
-                    });
+                    const sel = document.getElementById('manual-stu-select'); sel.innerHTML = '<option value="">اختر الطالب...</option>';
+                    Object.entries(students).forEach(([uid, name]) => { sel.innerHTML += `<option value="${uid}">${name}</option>`; });
                     document.getElementById('manual-modal').classList.add('active');
                 };
-
                 document.getElementById('btn-confirm-manual').onclick = async () => {
                     const uid = document.getElementById('manual-stu-select').value;
                     if (!uid) return notify('يرجى اختيار طالب', true);
-                    const studentName = localStudentsCache[uid];
-                    const today = new Date().toISOString().split('T')[0];
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), {
-                        studentId: uid, studentName, subject: logSub.value, stage: adminStage, type: adminType,
-                        date: today, time: new Date().toLocaleTimeString('ar-EG'), timestamp: serverTimestamp()
-                    });
-                    notify('تمت الإضافة يدوياً');
-                    document.getElementById('manual-modal').classList.remove('active');
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'attendance'), { studentId: uid, studentName: localStudentsCache[uid], subject: logSub.value, stage: adminStage, type: adminType, date: new Date().toISOString().split('T')[0], time: new Date().toLocaleTimeString('ar-EG'), timestamp: serverTimestamp() });
+                    notify('تمت الإضافة يدوياً'); document.getElementById('manual-modal').classList.remove('active');
                 };
-                
                 document.getElementById('manual-close-btn').onclick = () => document.getElementById('manual-modal').classList.remove('active');
+                
                 document.getElementById('btn-manage-subjects').onclick = () => {
+                    document.getElementById('pin-modal').classList.add('active');
+                    document.getElementById('subject-pin-input').value = '';
+                    document.getElementById('subject-pin-input').focus();
+                };
+
+                document.getElementById('btn-pin-cancel').onclick = () => document.getElementById('pin-modal').classList.remove('active');
+                document.getElementById('btn-pin-confirm').onclick = () => {
+                    if (document.getElementById('subject-pin-input').value === "122109") {
+                        document.getElementById('pin-modal').classList.remove('active');
+                        openSubjectModal();
+                    } else { notify('الرمز غير صحيح', true); }
+                };
+
+                const openSubjectModal = () => {
                     document.getElementById('sub-modal-stage').innerText = adminStage; document.getElementById('sub-modal-type').innerText = adminType;
                     onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'subjects'), where('stage', '==', adminStage), where('type', '==', adminType)), (snap) => {
                         const list = document.getElementById('current-subjects-list'); list.innerHTML = '';
@@ -437,6 +454,7 @@
                     });
                     document.getElementById('subject-modal').classList.add('active');
                 };
+
                 document.getElementById('btn-save-subject').onclick = async () => {
                     const name = document.getElementById('new-subject-name').value.trim();
                     if(name) await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'subjects'), { name, stage: adminStage, type: adminType });
@@ -448,11 +466,7 @@
             const drawMembers = () => {
                 document.getElementById('admin-content').innerHTML = `<div class="space-y-4 animate-in"><h4 class="font-black text-slate-800">إدارة الطلاب</h4><div id="members-list" class="space-y-2 max-h-[350px] overflow-y-auto no-scrollbar"></div></div>`;
                 onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'members'), where('stage', '==', adminStage), where('type', '==', adminType)), (snap) => {
-                      document.getElementById('members-list').innerHTML = snap.docs.map(d => `
-                        <div class="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border shadow-sm animate-in">
-                            <div><p class="font-bold text-sm text-slate-800">${d.data().name}</p><p class="text-[10px] text-blue-600 font-black">الرمز: ${d.data().pin}</p></div>
-                            <button onclick="window.deleteEntry('mem', '${d.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded-full transition-all"><i data-lucide="trash-2" size="20"></i></button>
-                        </div>`).join('') || '<p class="text-center py-10 text-slate-300">لا يوجد طلاب</p>';
+                      document.getElementById('members-list').innerHTML = snap.docs.map(d => `<div class="p-4 bg-slate-50 rounded-2xl flex justify-between items-center border shadow-sm animate-in"><div><p class="font-bold text-sm text-slate-800">${d.data().name}</p><p class="text-[10px] text-blue-600 font-black">الرمز: ${d.data().pin}</p></div><button onclick="window.deleteEntry('mem', '${d.id}')" class="text-red-500 p-2 hover:bg-red-50 rounded-full transition-all"><i data-lucide="trash-2" size="20"></i></button></div>`).join('') || '<p class="text-center py-10 text-slate-300">لا يوجد طلاب</p>';
                       lucide.createIcons();
                 });
             };
